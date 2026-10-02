@@ -25,6 +25,7 @@ const (
 	CodeEventHashMismatch    Code = "event_hash_mismatch"
 	CodeUnknownSigningKey    Code = "unknown_signing_key"
 	CodeSignatureInvalid     Code = "signature_invalid"
+	CodeSigningKeyInvalid    Code = "signing_key_invalid"
 	CodeSigningKeyRevoked    Code = "signing_key_revoked"
 	CodeKeyOutsideValidity   Code = "signing_key_outside_validity"
 	CodeSequenceGap          Code = "sequence_gap"
@@ -63,6 +64,7 @@ var codeCheck = map[Code]Check{
 	CodeEventHashMismatch:    CheckHashChain,
 	CodeUnknownSigningKey:    CheckSignatures,
 	CodeSignatureInvalid:     CheckSignatures,
+	CodeSigningKeyInvalid:    CheckSignatures,
 	CodeSigningKeyRevoked:    CheckSignatures,
 	CodeKeyOutsideValidity:   CheckSignatures,
 	CodeSequenceGap:          CheckOrdering,
