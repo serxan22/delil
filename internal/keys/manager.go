@@ -72,7 +72,13 @@ func (m *Manager) newKeyRecord(ctx context.Context, tenantID, projectID string, 
 
 // CreateInitialKey creates the first active key of a new project inside tx.
 func (m *Manager) CreateInitialKey(ctx context.Context, tx pgx.Tx, tenantID, projectID string) (store.SigningKey, error) {
-	rec, err := m.newKeyRecord(ctx, tenantID, projectID, m.now().UTC().Truncate(time.Microsecond))
+	return m.CreateInitialKeyAt(ctx, tx, tenantID, projectID, m.now())
+}
+
+// CreateInitialKeyAt is CreateInitialKey with an explicit activation time
+// (used when importing or generating historical data).
+func (m *Manager) CreateInitialKeyAt(ctx context.Context, tx pgx.Tx, tenantID, projectID string, at time.Time) (store.SigningKey, error) {
+	rec, err := m.newKeyRecord(ctx, tenantID, projectID, at.UTC().Truncate(time.Microsecond))
 	if err != nil {
 		return store.SigningKey{}, err
 	}
@@ -149,6 +155,11 @@ type RotationResult struct {
 // closed at the later of now and its newest event, and the new key's window
 // starts there, so the windows are contiguous.
 func (m *Manager) Rotate(ctx context.Context, tenantID, projectID string) (RotationResult, error) {
+	return m.RotateAt(ctx, tenantID, projectID, m.now())
+}
+
+// RotateAt is Rotate with an explicit rotation time (historical data only).
+func (m *Manager) RotateAt(ctx context.Context, tenantID, projectID string, when time.Time) (RotationResult, error) {
 	var res RotationResult
 	err := m.store.InTx(ctx, func(tx pgx.Tx) error {
 		old, err := m.store.ActiveSigningKeyForUpdate(ctx, tx, tenantID, projectID)
@@ -158,7 +169,7 @@ func (m *Manager) Rotate(ctx context.Context, tenantID, projectID string) (Rotat
 		if err != nil {
 			return err
 		}
-		at := m.now().UTC().Truncate(time.Microsecond)
+		at := when.UTC().Truncate(time.Microsecond)
 		latest, err := m.store.LatestRecordedAtForKey(ctx, tx, old.ID)
 		if err != nil {
 			return err
