@@ -232,3 +232,31 @@ func VerifySignature(pub ed25519.PublicKey, tag string, h Hash, sig []byte) bool
 	}
 	return ed25519.Verify(pub, SigningMessage(tag, h), sig)
 }
+
+// KeyProblem describes a key that was rejected while building a key set.
+type KeyProblem struct {
+	KeyID  string
+	Reason string
+}
+
+// NewKeySetLenient builds a set from every valid key and reports the rest,
+// instead of failing. Verifiers use it so that a tampered key record shows up
+// as a finding (and the events it signed as signed by an untrusted key)
+// rather than aborting verification.
+func NewKeySetLenient(keys ...PublicKey) (*KeySet, []KeyProblem) {
+	s := &KeySet{keys: make(map[string]PublicKey, len(keys))}
+	var problems []KeyProblem
+	for _, k := range keys {
+		if err := k.Validate(); err != nil {
+			problems = append(problems, KeyProblem{KeyID: k.KeyID, Reason: err.Error()})
+			continue
+		}
+		if existing, ok := s.keys[k.KeyID]; ok && string(existing.PublicKey) != string(k.PublicKey) {
+			delete(s.keys, k.KeyID)
+			problems = append(problems, KeyProblem{KeyID: k.KeyID, Reason: "conflicting public keys share this id"})
+			continue
+		}
+		s.keys[k.KeyID] = k
+	}
+	return s, problems
+}

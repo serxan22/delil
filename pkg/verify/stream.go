@@ -63,6 +63,10 @@ type StreamOptions struct {
 	// KeySource describes where Keys came from ("server", "pinned",
 	// "package") and is copied into the report.
 	KeySource string
+	// RejectedKeys are key records that failed validation (for example a
+	// public key that no longer matches its id). Each is reported as a
+	// failure; events they signed fail as signed by an untrusted key.
+	RejectedKeys []integrity.KeyProblem
 	// Anchor is where the segment starts; nil means genesis.
 	Anchor *Anchor
 	// Head, when set, must equal the last verified record.
@@ -165,6 +169,10 @@ func NewStreamVerifier(opts StreamOptions) *StreamVerifier {
 			KeysUsed:  []string{},
 		},
 	}
+	for _, kp := range opts.RejectedKeys {
+		v.add(Failure{Code: CodeSigningKeyInvalid,
+			Message: fmt.Sprintf("signing key record %s is not trustworthy: %s", kp.KeyID, kp.Reason)})
+	}
 	v.prepareCheckpoints(opts.Checkpoints, false)
 	v.prepareCheckpoints(opts.Witnesses, true)
 	return v
@@ -226,7 +234,9 @@ func (v *StreamVerifier) add(f Failure) {
 	}
 	v.report.FailureCount++
 	v.checkFailures[f.Check]++
-	if v.report.FirstFailure == nil || (f.Sequence > 0 && f.Sequence < v.report.FirstFailure.Sequence) {
+	// The first failure is the lowest-sequence invalid event; findings that
+	// are not tied to an event only fill the slot until one appears.
+	if ff := v.report.FirstFailure; ff == nil || (f.Sequence > 0 && (ff.Sequence == 0 || f.Sequence < ff.Sequence)) {
 		ff := f
 		v.report.FirstFailure = &ff
 	}

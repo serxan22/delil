@@ -13,6 +13,7 @@ type EventOptions struct {
 	Stream                  string
 	Keys                    *integrity.KeySet
 	KeySource               string
+	RejectedKeys            []integrity.KeyProblem
 	RequireCanonicalContent bool
 	Verifier                *VerifierInfo
 	// Head, when the target is the last event, is compared like in stream
@@ -57,6 +58,7 @@ func VerifyEvent(target Item, prev, next *Item, opts EventOptions) *Report {
 		Stream:                  opts.Stream,
 		Keys:                    opts.Keys,
 		KeySource:               opts.KeySource,
+		RejectedKeys:            opts.RejectedKeys,
 		Anchor:                  &anchor,
 		Head:                    opts.Head,
 		RequireCanonicalContent: opts.RequireCanonicalContent,
