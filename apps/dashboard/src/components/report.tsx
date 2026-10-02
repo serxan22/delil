@@ -69,7 +69,7 @@ export function ReportView({ report }: { report: Report }) {
         </div>
       )}
       <div className="border-t border-line px-5 py-3 text-[12px] text-muted">
-        Keys: {report.keysUsed.join(", ") || "—"}{report.keySource ? ` · trusted keys ${report.keySource}` : ""}
+        Keys: {report.keysUsed.join(", ") || "—"}{report.keySource ? ` · key source: ${report.keySource}` : ""}
       </div>
     </div>
   );
