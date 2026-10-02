@@ -37,6 +37,14 @@ const (
 	CodeCheckpointInvalid    Code = "checkpoint_invalid"
 	CodeCheckpointMismatch   Code = "checkpoint_mismatch"
 	CodeCheckpointBeyondHead Code = "checkpoint_beyond_head"
+
+	// Evidence-package codes.
+	CodePackageMalformed         Code = "package_malformed"
+	CodePackageDigestMismatch    Code = "package_digest_mismatch"
+	CodeManifestSignatureInvalid Code = "manifest_signature_invalid"
+	CodePackageUnanchored        Code = "package_unanchored"
+	CodeDisclosureMismatch       Code = "disclosure_mismatch"
+	CodeSelectionMismatch        Code = "selection_mismatch"
 )
 
 // Check is one of the categories summarized in a report.
@@ -50,6 +58,7 @@ const (
 	CheckOrdering      Check = "ordering"
 	CheckCheckpoints   Check = "checkpoints"
 	CheckStreamHead    Check = "streamHead"
+	CheckPackage       Check = "package"
 )
 
 var codeCheck = map[Code]Check{
@@ -76,6 +85,13 @@ var codeCheck = map[Code]Check{
 	CodeCheckpointInvalid:    CheckCheckpoints,
 	CodeCheckpointMismatch:   CheckCheckpoints,
 	CodeCheckpointBeyondHead: CheckCheckpoints,
+
+	CodePackageMalformed:         CheckPackage,
+	CodePackageDigestMismatch:    CheckPackage,
+	CodeManifestSignatureInvalid: CheckPackage,
+	CodePackageUnanchored:        CheckPackage,
+	CodeDisclosureMismatch:       CheckPackage,
+	CodeSelectionMismatch:        CheckPackage,
 }
 
 // CheckOf returns the category a code belongs to.
@@ -121,6 +137,8 @@ const (
 
 // Checks summarizes every category. Field order is the display order.
 type Checks struct {
+	// Package is only set for evidence packages.
+	Package       Status `json:"package,omitempty"`
 	HashChain     Status `json:"hashChain"`
 	PayloadHashes Status `json:"payloadHashes"`
 	Signatures    Status `json:"signatures"`
@@ -132,6 +150,8 @@ type Checks struct {
 // Get returns the status of a category.
 func (c Checks) Get(check Check) Status {
 	switch check {
+	case CheckPackage:
+		return c.Package
 	case CheckHashChain:
 		return c.HashChain
 	case CheckPayloadHashes:

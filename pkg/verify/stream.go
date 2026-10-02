@@ -218,6 +218,10 @@ func (v *StreamVerifier) prepareCheckpoints(cps []integrity.Checkpoint, witness 
 	}
 }
 
+// AddFailure records a finding produced outside the engine (for example an
+// evidence-package check) so that it is counted and reported uniformly.
+func (v *StreamVerifier) AddFailure(f Failure) { v.add(f) }
+
 // add records a failure, applying the severity, category and cap.
 func (v *StreamVerifier) add(f Failure) {
 	if f.Check == "" {
@@ -568,6 +572,7 @@ func (v *StreamVerifier) Finish() *Report {
 		return StatusValid
 	}
 	rep.Checks = Checks{
+		Package:       v.packageStatus(),
 		HashChain:     status(CheckHashChain, true),
 		PayloadHashes: status(CheckPayloadHashes, v.hasContent || v.opts.RequireContent),
 		Signatures:    status(CheckSignatures, true),
@@ -586,6 +591,16 @@ func (v *StreamVerifier) Finish() *Report {
 	rep.CompletedAt = integrity.FormatTime(end)
 	rep.DurationMs = end.Sub(v.start).Milliseconds()
 	return rep
+}
+
+func (v *StreamVerifier) packageStatus() Status {
+	if v.opts.Scope != ScopeEvidencePackage {
+		return ""
+	}
+	if v.checkFailures[CheckPackage] > 0 {
+		return StatusInvalid
+	}
+	return StatusValid
 }
 
 // Source yields records in ascending sequence order. An empty batch with a nil
