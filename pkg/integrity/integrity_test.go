@@ -394,7 +394,7 @@ func buildVectors(t *testing.T) vectorFile {
 		}
 		out.Events = append(out.Events, vectorEvent{
 			Name:              c.name,
-			Content:           json.RawMessage(rec.Content),
+			Content:           rec.Content,
 			ContentCanonical:  string(rec.Content),
 			PayloadHash:       rec.PayloadHash.String(),
 			Header:            json.RawMessage(headerCanonical),
