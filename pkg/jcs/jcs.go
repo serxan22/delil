@@ -179,7 +179,7 @@ func (p *parser) parseValue() (any, error) {
 	case c == '-' || (c >= '0' && c <= '9'):
 		return p.parseNumber()
 	default:
-		return nil, p.errorf("unexpected character %q", rune(c))
+		return nil, p.errorf("unexpected character %q", p.data[p.pos])
 	}
 }
 
