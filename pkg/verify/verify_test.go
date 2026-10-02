@@ -635,8 +635,8 @@ func TestWriteText(t *testing.T) {
 	var buf bytes.Buffer
 	WriteText(&buf, run(t, items, opts(keySet(t, signer))), Style{})
 	out := buf.String()
-	for _, want := range []string{"DƏLİL Integrity Verification", "Events checked:    20", "Hash chain:        VALID",
-		"Digital signatures:VALID", "Tampering detected: NO", "Verification completed successfully."} {
+	for _, want := range []string{"DƏLİL Integrity Verification", "Events checked:    20", "Hash chain:         VALID",
+		"Digital signatures: VALID", "Tampering detected: NO", "Verification completed successfully."} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in:\n%s", want, out)
 		}

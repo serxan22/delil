@@ -47,6 +47,7 @@ var checkLabels = []struct {
 	check Check
 	label string
 }{
+	{CheckPackage, "Package integrity"},
 	{CheckHashChain, "Hash chain"},
 	{CheckPayloadHashes, "Payload hashes"},
 	{CheckSignatures, "Digital signatures"},
@@ -86,6 +87,9 @@ func WriteText(w io.Writer, rep *Report, st Style) {
 	p("\n")
 	for _, cl := range checkLabels {
 		s := rep.Checks.Get(cl.check)
+		if s == "" {
+			continue
+		}
 		var shown string
 		switch s {
 		case StatusValid:
@@ -99,7 +103,7 @@ func WriteText(w io.Writer, rep *Report, st Style) {
 		if cl.check == CheckCheckpoints && rep.CheckpointsVerified > 0 && s != StatusSkipped {
 			extra = apply(st.Muted, fmt.Sprintf("  (%d verified)", rep.CheckpointsVerified))
 		}
-		p("%-19s%s%s\n", cl.label+":", shown, extra)
+		p("%-20s%s%s\n", cl.label+":", shown, extra)
 	}
 	p("\n")
 	if rep.Valid {
