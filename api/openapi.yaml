@@ -1,5 +1,905 @@
 openapi: 3.1.0
 info:
-  title: DELIL API
+  title: DƏLİL API
   version: 0.1.0
-paths: {}
+  summary: Cryptographically verifiable audit infrastructure.
+  description: |
+    Applications send audit events to DƏLİL. Every event is canonicalized (RFC 8785),
+    hashed (SHA-256), linked to its predecessor in its stream and signed (Ed25519).
+    Verification recomputes all of it and reports exactly where a chain was altered.
+
+    **Authentication.** Machine clients use project API keys
+    (`Authorization: Bearer dlk_…`). Dashboard sessions use `Authorization: Bearer dls_…`
+    and must name the project with the `Delil-Project` header.
+
+    **Errors** always have the shape `{"error": {"code", "message", "requestId", "details"?}}`.
+    Every response carries `X-Request-Id`.
+
+    **Retries.** Event ingestion accepts an `Idempotency-Key`; retrying with the same key
+    and body returns the original result with `Idempotent-Replayed: true`.
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+  contact:
+    name: DƏLİL
+    url: https://github.com/serxan22/delil
+servers:
+  - url: http://localhost:8080
+    description: Local development (docker compose)
+security:
+  - bearer: []
+tags:
+  - name: Events
+  - name: Streams
+  - name: Verification
+  - name: Exports
+  - name: Keys
+  - name: Projects
+  - name: Sessions
+  - name: System
+
+paths:
+  /health:
+    get:
+      tags: [System]
+      summary: Liveness
+      operationId: health
+      security: []
+      responses:
+        "200":
+          description: The process is up.
+          content:
+            application/json:
+              schema: { type: object, properties: { status: { type: string }, version: { type: string } } }
+  /ready:
+    get:
+      tags: [System]
+      summary: Readiness (database reachable, migrations applied)
+      operationId: ready
+      security: []
+      responses:
+        "200": { description: Ready, content: { application/json: { schema: { $ref: "#/components/schemas/Readiness" } } } }
+        "503": { description: Not ready, content: { application/json: { schema: { $ref: "#/components/schemas/Readiness" } } } }
+  /metrics:
+    get:
+      tags: [System]
+      summary: Prometheus metrics
+      description: Served on the main port unless DELIL_METRICS_ADDR is set; optionally protected by DELIL_METRICS_TOKEN.
+      operationId: metrics
+      security: []
+      responses:
+        "200": { description: Prometheus text format, content: { text/plain: { schema: { type: string } } } }
+
+  /v1/events:
+    post:
+      tags: [Events]
+      summary: Record an event
+      description: Requires the `events:write` scope. The stream is created on first use.
+      operationId: recordEvent
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/EventInput" } } }
+      responses:
+        "201":
+          description: Committed (or replayed, see `Idempotent-Replayed`).
+          headers: { Idempotent-Replayed: { $ref: "#/components/headers/IdempotentReplayed" } }
+          content: { application/json: { schema: { $ref: "#/components/schemas/EventReceipt" } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "415": { $ref: "#/components/responses/BadRequest" }
+        "422": { $ref: "#/components/responses/Invalid" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+    get:
+      tags: [Events]
+      summary: List events (newest first)
+      operationId: listEvents
+      parameters:
+        - { name: stream, in: query, schema: { type: string } }
+        - { name: actorId, in: query, schema: { type: string } }
+        - { name: actorType, in: query, schema: { type: string } }
+        - { name: action, in: query, description: Exact action, or a prefix ending with `*`., schema: { type: string } }
+        - { name: resourceType, in: query, schema: { type: string } }
+        - { name: resourceId, in: query, schema: { type: string } }
+        - { name: from, in: query, description: Recorded at or after (RFC 3339 or YYYY-MM-DD)., schema: { type: string } }
+        - { name: to, in: query, description: Recorded before (RFC 3339 or YYYY-MM-DD)., schema: { type: string } }
+        - { name: verificationStatus, in: query, schema: { type: string, enum: [verified, failed, unverified] } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+        - { name: cursor, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: A page of events.
+          content: { application/json: { schema: { $ref: "#/components/schemas/EventList" } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /v1/events/batch:
+    post:
+      tags: [Events]
+      summary: Record several events atomically
+      description: All events are committed in one transaction, or none is. Events may target different streams.
+      operationId: recordBatch
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [events]
+              additionalProperties: false
+              properties:
+                events: { type: array, minItems: 1, maxItems: 500, items: { $ref: "#/components/schemas/EventInput" } }
+      responses:
+        "201":
+          description: Committed.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  object: { const: list }
+                  data: { type: array, items: { $ref: "#/components/schemas/EventReceipt" } }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "422": { $ref: "#/components/responses/Invalid" }
+  /v1/events/{id}:
+    get:
+      tags: [Events]
+      summary: Get an event
+      operationId: getEvent
+      parameters: [{ $ref: "#/components/parameters/EventId" }]
+      responses:
+        "200": { description: The event, content: { application/json: { schema: { $ref: "#/components/schemas/Event" } } } }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /v1/events/{id}/verify:
+    get:
+      tags: [Verification]
+      summary: Verify one event and its links to its neighbours
+      description: Requires `verify`. A local check; verify the stream for whole-chain guarantees.
+      operationId: verifyEvent
+      parameters: [{ $ref: "#/components/parameters/EventId" }]
+      responses:
+        "200": { description: Report, content: { application/json: { schema: { $ref: "#/components/schemas/VerificationReport" } } } }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/streams:
+    get:
+      tags: [Streams]
+      summary: List streams
+      operationId: listStreams
+      responses:
+        "200":
+          description: Streams.
+          content:
+            application/json:
+              schema: { type: object, properties: { object: { const: list }, data: { type: array, items: { $ref: "#/components/schemas/Stream" } } } }
+  /v1/streams/{name}:
+    get:
+      tags: [Streams]
+      summary: Get a stream and its head
+      operationId: getStream
+      parameters: [{ $ref: "#/components/parameters/StreamName" }]
+      responses:
+        "200": { description: Stream, content: { application/json: { schema: { $ref: "#/components/schemas/Stream" } } } }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /v1/streams/{name}/chain:
+    get:
+      tags: [Streams]
+      summary: Raw chain records for independent verification
+      description: |
+        Returns headers, hashes, signatures and the exact canonical content, in ascending
+        sequence order. The delil CLI uses this endpoint to verify without trusting the server.
+      operationId: getChain
+      parameters:
+        - { $ref: "#/components/parameters/StreamName" }
+        - { name: afterSequence, in: query, schema: { type: integer, minimum: 0, default: 0 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 5000, default: 1000 } }
+        - { name: content, in: query, description: Set to `false` for header-only records., schema: { type: boolean, default: true } }
+      responses:
+        "200": { description: A page of records, content: { application/json: { schema: { $ref: "#/components/schemas/ChainPage" } } } }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /v1/streams/{name}/verify:
+    post:
+      tags: [Verification]
+      summary: Verify a stream on the server and record the run
+      operationId: verifyStream
+      parameters: [{ $ref: "#/components/parameters/StreamName" }]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                witnesses: { type: array, description: Checkpoints saved earlier; they must still be part of the chain., items: { $ref: "#/components/schemas/Checkpoint" } }
+      responses:
+        "200": { description: Verification run with its report, content: { application/json: { schema: { $ref: "#/components/schemas/VerificationRun" } } } }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /v1/streams/{name}/checkpoints:
+    get:
+      tags: [Streams]
+      summary: List signed checkpoints
+      operationId: listCheckpoints
+      parameters: [{ $ref: "#/components/parameters/StreamName" }]
+      responses:
+        "200":
+          description: Checkpoints in ascending sequence order.
+          content:
+            application/json:
+              schema: { type: object, properties: { object: { const: list }, data: { type: array, items: { $ref: "#/components/schemas/Checkpoint" } } } }
+    post:
+      tags: [Streams]
+      summary: Sign the current head
+      description: Requires `verify`. Returns 200 with the existing checkpoint if the head is already checkpointed.
+      operationId: createCheckpoint
+      parameters: [{ $ref: "#/components/parameters/StreamName" }]
+      responses:
+        "201": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/Checkpoint" } } } }
+        "200": { description: Already checkpointed, content: { application/json: { schema: { $ref: "#/components/schemas/Checkpoint" } } } }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /v1/verify:
+    post:
+      tags: [Verification]
+      summary: Verify every stream of the project
+      operationId: verifyProject
+      responses:
+        "200": { description: Verification run, content: { application/json: { schema: { $ref: "#/components/schemas/VerificationRun" } } } }
+  /v1/verification-runs:
+    get:
+      tags: [Verification]
+      summary: List verification runs
+      operationId: listVerificationRuns
+      parameters: [{ name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }]
+      responses:
+        "200":
+          description: Runs, newest first (reports omitted).
+          content:
+            application/json:
+              schema: { type: object, properties: { object: { const: list }, data: { type: array, items: { $ref: "#/components/schemas/VerificationRun" } } } }
+  /v1/verification-runs/{id}:
+    get:
+      tags: [Verification]
+      summary: Get a verification run with its report
+      operationId: getVerificationRun
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, pattern: "^vrf_[0-9A-Z]{26}$" } }]
+      responses:
+        "200": { description: Run, content: { application/json: { schema: { $ref: "#/components/schemas/VerificationRun" } } } }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/exports:
+    post:
+      tags: [Exports]
+      summary: Create an evidence package
+      description: Requires `exports`. Built asynchronously; poll `GET /v1/exports/{id}`.
+      operationId: createExport
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/ExportRequest" } } }
+      responses:
+        "202": { description: Queued, content: { application/json: { schema: { $ref: "#/components/schemas/Export" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    get:
+      tags: [Exports]
+      summary: List exports
+      operationId: listExports
+      responses:
+        "200":
+          description: Exports, newest first.
+          content:
+            application/json:
+              schema: { type: object, properties: { object: { const: list }, data: { type: array, items: { $ref: "#/components/schemas/Export" } } } }
+  /v1/exports/{id}:
+    get:
+      tags: [Exports]
+      summary: Get an export
+      operationId: getExport
+      parameters: [{ $ref: "#/components/parameters/ExportId" }]
+      responses:
+        "200": { description: Export, content: { application/json: { schema: { $ref: "#/components/schemas/Export" } } } }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /v1/exports/{id}/download:
+    get:
+      tags: [Exports]
+      summary: Download the evidence package (ZIP)
+      operationId: downloadExport
+      parameters: [{ $ref: "#/components/parameters/ExportId" }]
+      responses:
+        "200": { description: The package, content: { application/zip: { schema: { type: string, format: binary } } } }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /v1/api-keys:
+    post:
+      tags: [Keys]
+      summary: Create an API key
+      description: |
+        Requires `api_keys:manage`. The secret is returned once. An API key can only grant
+        scopes it holds itself.
+      operationId: createApiKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, scopes]
+              additionalProperties: false
+              properties:
+                name: { type: string, maxLength: 100 }
+                scopes: { type: array, items: { $ref: "#/components/schemas/Scope" } }
+                expiresAt: { type: string, format: date-time }
+      responses:
+        "201": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/ApiKey" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    get:
+      tags: [Keys]
+      summary: List API keys (never includes secrets)
+      operationId: listApiKeys
+      responses:
+        "200":
+          description: Keys.
+          content:
+            application/json:
+              schema: { type: object, properties: { object: { const: list }, data: { type: array, items: { $ref: "#/components/schemas/ApiKey" } } } }
+  /v1/api-keys/{id}:
+    delete:
+      tags: [Keys]
+      summary: Revoke an API key
+      operationId: revokeApiKey
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        "200": { description: Revoked, content: { application/json: { schema: { $ref: "#/components/schemas/ApiKey" } } } }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /v1/signing-keys:
+    get:
+      tags: [Keys]
+      summary: List signing keys
+      operationId: listSigningKeys
+      responses:
+        "200":
+          description: Keys, oldest first.
+          content:
+            application/json:
+              schema: { type: object, properties: { object: { const: list }, data: { type: array, items: { $ref: "#/components/schemas/SigningKey" } } } }
+  /v1/signing-keys/export:
+    get:
+      tags: [Keys]
+      summary: Public keys in trusted-keys format (for pinning)
+      operationId: exportSigningKeys
+      responses:
+        "200": { description: Keys file, content: { application/json: { schema: { $ref: "#/components/schemas/KeysFile" } } } }
+  /v1/signing-keys/rotate:
+    post:
+      tags: [Keys]
+      summary: Rotate the project's signing key
+      description: Requires `keys:rotate`. The old key is retired but kept, so history stays verifiable.
+      operationId: rotateSigningKey
+      responses:
+        "200":
+          description: Rotation result.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  previous: { $ref: "#/components/schemas/SigningKey" }
+                  current: { $ref: "#/components/schemas/SigningKey" }
+  /v1/signing-keys/{id}/revoke:
+    post:
+      tags: [Keys]
+      summary: Revoke a compromised signing key
+      description: Events recorded after the revocation time with this key fail verification. Revoking the active key creates a replacement.
+      operationId: revokeSigningKey
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, pattern: "^ed25519:[0-9a-f]{32}$" } }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [reason], properties: { reason: { type: string, maxLength: 500 } } }
+      responses:
+        "200": { description: Revoked }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/project:
+    get:
+      tags: [Projects]
+      summary: The current project and its settings
+      operationId: getProject
+      responses:
+        "200": { description: Project, content: { application/json: { schema: { $ref: "#/components/schemas/Project" } } } }
+    patch:
+      tags: [Projects]
+      summary: Update the project name or ingestion settings (dashboard admins)
+      operationId: updateProject
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                name: { type: string }
+                settings: { $ref: "#/components/schemas/ProjectSettings" }
+      responses:
+        "200": { description: Updated project, content: { application/json: { schema: { $ref: "#/components/schemas/Project" } } } }
+  /v1/overview:
+    get:
+      tags: [Projects]
+      summary: Statistics and integrity health
+      operationId: getOverview
+      responses:
+        "200": { description: Overview, content: { application/json: { schema: { type: object } } } }
+  /v1/projects:
+    get:
+      tags: [Projects]
+      summary: List the organization's projects (dashboard sessions)
+      operationId: listProjects
+      responses: { "200": { description: Projects } }
+    post:
+      tags: [Projects]
+      summary: Create a project with its own signing key (admins)
+      operationId: createProject
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [name], properties: { name: { type: string }, slug: { type: string } } } } }
+      responses:
+        "201": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/Project" } } } }
+  /v1/users:
+    get:
+      tags: [Projects]
+      summary: List dashboard users (admins)
+      operationId: listUsers
+      responses: { "200": { description: Users } }
+    post:
+      tags: [Projects]
+      summary: Create a dashboard user (admins)
+      operationId: createUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, displayName, role, password]
+              properties:
+                email: { type: string, format: email }
+                displayName: { type: string }
+                role: { type: string, enum: [admin, auditor, viewer] }
+                password: { type: string, minLength: 12, maxLength: 128 }
+      responses: { "201": { description: Created } }
+
+  /v1/auth/login:
+    post:
+      tags: [Sessions]
+      summary: Exchange email and password for a session token
+      description: Rate limited per client IP and per email. Unknown accounts and wrong passwords return the same error.
+      operationId: login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [email, password], properties: { email: { type: string }, password: { type: string } } }
+      responses:
+        "200": { description: Session with token }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+  /v1/auth/logout:
+    post: { tags: [Sessions], summary: Revoke the current session, operationId: logout, responses: { "204": { description: Signed out } } }
+  /v1/auth/session:
+    get: { tags: [Sessions], summary: "The current session, user, organization and projects", operationId: getSession, responses: { "200": { description: Session } } }
+  /v1/auth/password:
+    post:
+      tags: [Sessions]
+      summary: Change the password and sign out other sessions
+      operationId: changePassword
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [currentPassword, newPassword], properties: { currentPassword: { type: string }, newPassword: { type: string, minLength: 12 } } }
+      responses: { "204": { description: Changed } }
+
+components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+      description: A project API key (`dlk_…`) or a dashboard session token (`dls_…`).
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: 1-255 printable ASCII characters. Retries with the same key and body return the original result.
+      schema: { type: string, maxLength: 255 }
+    EventId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, pattern: "^evt_[0-9A-Z]{26}$" }
+    StreamName:
+      name: name
+      in: path
+      required: true
+      schema: { $ref: "#/components/schemas/StreamName" }
+    ExportId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, pattern: "^exp_[0-9A-Z]{26}$" }
+  headers:
+    IdempotentReplayed:
+      description: "`true` when the response replays an earlier request with the same idempotency key."
+      schema: { type: string }
+  responses:
+    BadRequest: { description: Malformed request, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+    Unauthorized: { description: Missing or invalid credentials, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+    Forbidden: { description: Missing scope, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+    NotFound: { description: Not found (also for other tenants' resources), content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+    Conflict: { description: Conflict, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+    Invalid: { description: Validation failed (`invalid_event` lists fields in `details.errors`) or idempotency key reused, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+    TooLarge: { description: Request or event too large, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+    RateLimited:
+      description: Rate limited
+      headers: { Retry-After: { schema: { type: integer }, description: Seconds to wait. } }
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, requestId]
+          properties:
+            code: { type: string, examples: [invalid_event] }
+            message: { type: string }
+            requestId: { type: string }
+            details: { type: object }
+    Readiness:
+      type: object
+      properties:
+        status: { type: string, enum: [ready, not_ready] }
+        checks: { type: object, additionalProperties: { type: string } }
+    StreamName: { type: string, pattern: "^[a-z0-9][a-z0-9._-]{0,63}$", examples: [contracts] }
+    Hash: { type: string, pattern: "^[0-9a-f]{64}$", description: Lowercase hex SHA-256. }
+    Timestamp: { type: string, description: "UTC with six fractional digits, e.g. 2026-10-02T09:15:00.123456Z." }
+    Scope: { type: string, enum: ["events:write", "events:read", verify, exports, "keys:read", "keys:rotate", "api_keys:manage"] }
+    Actor:
+      type: object
+      required: [type, id]
+      additionalProperties: false
+      properties:
+        type: { type: string, pattern: "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$", examples: [user] }
+        id: { type: string, maxLength: 256, examples: [user_128] }
+        displayName: { type: string, maxLength: 256 }
+    Resource:
+      type: object
+      required: [type, id]
+      additionalProperties: false
+      properties:
+        type: { type: string, pattern: "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$" }
+        id: { type: string, maxLength: 256 }
+        displayName: { type: string, maxLength: 256 }
+    RequestContext:
+      type: object
+      additionalProperties: false
+      properties:
+        requestId: { type: string, maxLength: 128 }
+        traceId: { type: string, maxLength: 128 }
+        sessionId: { type: string, maxLength: 128 }
+        sourceIp: { type: string, description: IPv4 or IPv6 address. }
+        userAgent: { type: string, maxLength: 512 }
+    EventInput:
+      type: object
+      required: [stream, actor, action]
+      additionalProperties: false
+      description: |
+        Numbers must be within ±2^53 (send larger values as strings); strings must be valid
+        UTF-8 without U+0000; duplicate member names are rejected. Sensitive members are
+        redacted before storage according to the project's settings.
+      properties:
+        stream: { $ref: "#/components/schemas/StreamName" }
+        actor: { $ref: "#/components/schemas/Actor" }
+        action: { type: string, pattern: "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$", examples: [contract.approved] }
+        resource: { $ref: "#/components/schemas/Resource" }
+        before: { description: State before the change; `null` means the resource did not exist. }
+        after: { description: State after the change; `null` means the resource no longer exists. }
+        data: { description: Domain-specific payload. }
+        metadata: { type: object }
+        context: { $ref: "#/components/schemas/RequestContext" }
+        occurredAt: { type: string, format: date-time, description: "When it happened, as asserted by the application." }
+    EventReceipt:
+      type: object
+      properties:
+        object: { const: event_receipt }
+        id: { type: string }
+        stream: { type: string }
+        sequence: { type: integer }
+        recordedAt: { $ref: "#/components/schemas/Timestamp" }
+        eventHash: { $ref: "#/components/schemas/Hash" }
+        previousHash: { $ref: "#/components/schemas/Hash" }
+        payloadHash: { $ref: "#/components/schemas/Hash" }
+        signature: { type: string, description: Base64 Ed25519 signature. }
+        signingKeyId: { type: string }
+        verificationStatus: { const: valid, description: The server re-verified the signature and link before committing. }
+    Change:
+      type: object
+      properties:
+        op: { type: string, enum: [add, remove, replace] }
+        path: { type: string, description: RFC 6901 JSON Pointer. }
+        from: {}
+        to: {}
+    Event:
+      type: object
+      properties:
+        object: { const: event }
+        id: { type: string }
+        stream: { type: string }
+        sequence: { type: integer }
+        action: { type: string }
+        actor: { $ref: "#/components/schemas/Actor" }
+        resource: { $ref: "#/components/schemas/Resource" }
+        before: {}
+        after: {}
+        changes: { type: array, items: { $ref: "#/components/schemas/Change" } }
+        data: {}
+        metadata: { type: object }
+        context: { $ref: "#/components/schemas/RequestContext" }
+        occurredAt: { $ref: "#/components/schemas/Timestamp" }
+        recordedAt: { $ref: "#/components/schemas/Timestamp" }
+        redactions: { type: array, items: { type: string } }
+        integrity:
+          type: object
+          properties:
+            schemaVersion: { type: integer }
+            previousHash: { $ref: "#/components/schemas/Hash" }
+            payloadHash: { $ref: "#/components/schemas/Hash" }
+            eventHash: { $ref: "#/components/schemas/Hash" }
+            signature: { type: string }
+            signingKeyId: { type: string }
+            algorithm: { const: Ed25519 }
+        verification:
+          type: object
+          properties:
+            status: { type: string, enum: [verified, failed, unverified] }
+            verifiedAt: { $ref: "#/components/schemas/Timestamp" }
+            runId: { type: string }
+    EventList:
+      type: object
+      properties:
+        object: { const: list }
+        data: { type: array, items: { $ref: "#/components/schemas/Event" } }
+        hasMore: { type: boolean }
+        nextCursor: { type: string }
+    Stream:
+      type: object
+      properties:
+        object: { const: stream }
+        id: { type: string }
+        name: { $ref: "#/components/schemas/StreamName" }
+        headSequence: { type: integer }
+        headHash: { $ref: "#/components/schemas/Hash" }
+        lastEventAt: { $ref: "#/components/schemas/Timestamp" }
+        lastCheckpointSequence: { type: integer }
+        createdAt: { $ref: "#/components/schemas/Timestamp" }
+        verification:
+          type: object
+          properties:
+            status: { type: string, enum: [passed, failed, never] }
+            verifiedAt: { $ref: "#/components/schemas/Timestamp" }
+            runId: { type: string }
+            lastSequence: { type: integer }
+            failureCount: { type: integer }
+            firstFailureSequence: { type: integer }
+    ChainRecord:
+      type: object
+      description: The header fields hash to `eventHash`; `content` is the exact RFC 8785 canonical content.
+      properties:
+        schemaVersion: { type: integer }
+        tenantId: { type: string }
+        projectId: { type: string }
+        stream: { type: string }
+        sequence: { type: integer }
+        eventId: { type: string }
+        recordedAt: { $ref: "#/components/schemas/Timestamp" }
+        previousHash: { $ref: "#/components/schemas/Hash" }
+        payloadHash: { $ref: "#/components/schemas/Hash" }
+        keyId: { type: string }
+        eventHash: { $ref: "#/components/schemas/Hash" }
+        signature: { type: string }
+        content: { type: object }
+    ChainPage:
+      type: object
+      properties:
+        object: { const: chain }
+        stream: { type: string }
+        tenantId: { type: string }
+        projectId: { type: string }
+        records: { type: array, items: { $ref: "#/components/schemas/ChainRecord" } }
+        hasMore: { type: boolean }
+        nextAfterSequence: { type: integer }
+        head: { type: object, properties: { sequence: { type: integer }, hash: { $ref: "#/components/schemas/Hash" } } }
+    Checkpoint:
+      type: object
+      properties:
+        schemaVersion: { type: integer }
+        checkpointId: { type: string }
+        tenantId: { type: string }
+        projectId: { type: string }
+        stream: { type: string }
+        sequence: { type: integer }
+        headHash: { $ref: "#/components/schemas/Hash" }
+        createdAt: { $ref: "#/components/schemas/Timestamp" }
+        keyId: { type: string }
+        checkpointHash: { $ref: "#/components/schemas/Hash" }
+        signature: { type: string }
+    Failure:
+      type: object
+      properties:
+        code: { type: string, examples: [previous_hash_mismatch] }
+        check: { type: string }
+        severity: { type: string, enum: [error, warning] }
+        sequence: { type: integer }
+        eventId: { type: string }
+        message: { type: string }
+        expected: { type: string }
+        found: { type: string }
+    VerificationReport:
+      type: object
+      properties:
+        object: { const: verification_report }
+        scope: { type: string, enum: [stream, event, evidence_package] }
+        result: { type: string, enum: [valid, invalid] }
+        valid: { type: boolean }
+        tamperingDetected: { type: boolean }
+        stream: { type: string }
+        eventsChecked: { type: integer }
+        payloadsChecked: { type: integer }
+        firstSequence: { type: integer }
+        lastSequence: { type: integer }
+        checks:
+          type: object
+          properties:
+            hashChain: { $ref: "#/components/schemas/CheckStatus" }
+            payloadHashes: { $ref: "#/components/schemas/CheckStatus" }
+            signatures: { $ref: "#/components/schemas/CheckStatus" }
+            ordering: { $ref: "#/components/schemas/CheckStatus" }
+            checkpoints: { $ref: "#/components/schemas/CheckStatus" }
+            streamHead: { $ref: "#/components/schemas/CheckStatus" }
+        checkpointsVerified: { type: integer }
+        keysUsed: { type: array, items: { type: string } }
+        firstFailure: { oneOf: [{ $ref: "#/components/schemas/Failure" }, { type: "null" }] }
+        failures: { type: array, items: { $ref: "#/components/schemas/Failure" } }
+        failureCount: { type: integer }
+        failuresTruncated: { type: boolean }
+        warnings: { type: array, items: { $ref: "#/components/schemas/Failure" } }
+        startedAt: { $ref: "#/components/schemas/Timestamp" }
+        completedAt: { $ref: "#/components/schemas/Timestamp" }
+        durationMs: { type: integer }
+    CheckStatus: { type: string, enum: [valid, invalid, skipped] }
+    VerificationRun:
+      type: object
+      properties:
+        object: { const: verification_run }
+        id: { type: string }
+        scope: { type: string, enum: [event, stream, project] }
+        target: { type: string }
+        status: { type: string, enum: [running, passed, failed, error] }
+        trigger: { type: string, enum: [api, dashboard, schedule, cli, system] }
+        triggeredBy: { type: string }
+        streamsChecked: { type: integer }
+        eventsChecked: { type: integer }
+        failureCount: { type: integer }
+        startedAt: { $ref: "#/components/schemas/Timestamp" }
+        completedAt: { $ref: "#/components/schemas/Timestamp" }
+        report: { type: object, description: "A VerificationReport, or for project runs an object with a `streams` array of reports." }
+    ExportRequest:
+      type: object
+      required: [stream]
+      additionalProperties: false
+      properties:
+        stream: { $ref: "#/components/schemas/StreamName" }
+        from: { type: string, description: Recorded at or after (RFC 3339 or YYYY-MM-DD). }
+        to: { type: string, description: Recorded before (RFC 3339 or YYYY-MM-DD). }
+        fromSequence: { type: integer, minimum: 1 }
+        toSequence: { type: integer, minimum: 1 }
+        actorId: { type: string, description: Disclosure filter. }
+        action: { type: string }
+        resourceType: { type: string }
+        resourceId: { type: string }
+    Export:
+      type: object
+      properties:
+        object: { const: export }
+        id: { type: string }
+        stream: { type: string }
+        status: { type: string, enum: [pending, running, completed, failed, expired] }
+        params: { type: object }
+        createdAt: { $ref: "#/components/schemas/Timestamp" }
+        completedAt: { $ref: "#/components/schemas/Timestamp" }
+        expiresAt: { $ref: "#/components/schemas/Timestamp" }
+        chainEvents: { type: integer }
+        disclosedEvents: { type: integer }
+        firstSequence: { type: integer }
+        lastSequence: { type: integer }
+        sizeBytes: { type: integer }
+        sha256: { type: string }
+        manifestHash: { type: string }
+        verificationValid: { type: boolean }
+        error: { type: string }
+        downloadUrl: { type: string }
+    ApiKey:
+      type: object
+      properties:
+        object: { const: api_key }
+        id: { type: string }
+        name: { type: string }
+        prefix: { type: string }
+        scopes: { type: array, items: { $ref: "#/components/schemas/Scope" } }
+        createdAt: { $ref: "#/components/schemas/Timestamp" }
+        lastUsedAt: { $ref: "#/components/schemas/Timestamp" }
+        expiresAt: { $ref: "#/components/schemas/Timestamp" }
+        revokedAt: { $ref: "#/components/schemas/Timestamp" }
+        secret: { type: string, description: Only in the creation response. }
+    SigningKey:
+      type: object
+      properties:
+        object: { const: signing_key }
+        id: { type: string }
+        algorithm: { const: Ed25519 }
+        publicKey: { type: string, description: Base64 raw 32-byte public key. }
+        fingerprint: { type: string, description: Hex SHA-256 of the raw public key. }
+        status: { type: string, enum: [active, retired, revoked] }
+        provider: { type: string }
+        activatedAt: { $ref: "#/components/schemas/Timestamp" }
+        retiredAt: { $ref: "#/components/schemas/Timestamp" }
+        revokedAt: { $ref: "#/components/schemas/Timestamp" }
+        eventsSigned: { type: integer }
+    KeysFile:
+      type: object
+      properties:
+        keys:
+          type: array
+          items:
+            type: object
+            properties:
+              keyId: { type: string }
+              algorithm: { const: Ed25519 }
+              publicKey: { type: string }
+              fingerprint: { type: string }
+              status: { type: string }
+              activatedAt: { type: string }
+              retiredAt: { type: string }
+              revokedAt: { type: string }
+    ProjectSettings:
+      type: object
+      additionalProperties: false
+      properties:
+        retainStates: { type: string, enum: [full, diff] }
+        maxEventBytes: { type: integer }
+        redaction:
+          type: object
+          additionalProperties: false
+          properties:
+            keys: { type: array, items: { type: string } }
+            paths: { type: array, items: { type: string } }
+            mode: { type: string, enum: [redact, remove, mask] }
+            disableDefaults: { type: boolean }
+    Project:
+      type: object
+      properties:
+        object: { const: project }
+        id: { type: string }
+        slug: { type: string }
+        name: { type: string }
+        settings: { $ref: "#/components/schemas/ProjectSettings" }
+        createdAt: { $ref: "#/components/schemas/Timestamp" }
+        tenant: { type: object, properties: { id: { type: string }, slug: { type: string }, name: { type: string } } }
