@@ -1,0 +1,146 @@
+{
+  "description": "DELIL integrity schema v1 known-answer vectors. Regenerate with: go test ./pkg/integrity -run TestKnownAnswerVectors -update",
+  "schemaVersion": 1,
+  "construction": [
+    "payloadHash = SHA-256(\"delil:v1:payload\" || 0x00 || JCS(content))",
+    "eventHash = SHA-256(\"delil:v1:event\" || 0x00 || JCS(header))",
+    "signature = Ed25519(seed, \"delil:v1:event-signature\" || 0x00 || eventHash)",
+    "checkpointHash = SHA-256(\"delil:v1:checkpoint\" || 0x00 || JCS(checkpointBody))",
+    "checkpointSignature = Ed25519(seed, \"delil:v1:checkpoint-signature\" || 0x00 || checkpointHash)",
+    "keyId = \"ed25519:\" || first 32 hex chars of SHA-256(rawPublicKey)"
+  ],
+  "signingKey": {
+    "seedHex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+    "publicKeyBase64": "A6EHv/POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg=",
+    "fingerprint": "56475aa75463474c0285df5dbf2bcab73da651358839e9b77481b2eab107708c",
+    "keyId": "ed25519:56475aa75463474c0285df5dbf2bcab7"
+  },
+  "events": [
+    {
+      "name": "genesis event",
+      "content": {
+        "action": "contract.created",
+        "actor": {
+          "displayName": "Sarkhan Mahabbatli",
+          "id": "user_128",
+          "type": "user"
+        },
+        "after": {
+          "status": "draft",
+          "value": {
+            "amount": 12500.5,
+            "currency": "AZN"
+          }
+        },
+        "before": null,
+        "changes": [
+          {
+            "op": "add",
+            "path": "/status",
+            "to": "draft"
+          },
+          {
+            "op": "add",
+            "path": "/value",
+            "to": {
+              "amount": 12500.5,
+              "currency": "AZN"
+            }
+          }
+        ],
+        "resource": {
+          "id": "contract_813",
+          "type": "contract"
+        }
+      },
+      "contentCanonical": "{\"action\":\"contract.created\",\"actor\":{\"displayName\":\"Sarkhan Mahabbatli\",\"id\":\"user_128\",\"type\":\"user\"},\"after\":{\"status\":\"draft\",\"value\":{\"amount\":12500.5,\"currency\":\"AZN\"}},\"before\":null,\"changes\":[{\"op\":\"add\",\"path\":\"/status\",\"to\":\"draft\"},{\"op\":\"add\",\"path\":\"/value\",\"to\":{\"amount\":12500.5,\"currency\":\"AZN\"}}],\"resource\":{\"id\":\"contract_813\",\"type\":\"contract\"}}",
+      "payloadHash": "37de914abde91a7e32ec59ee906b6091bea98a5beb9426f147be4956bb4ad1ce",
+      "header": {
+        "eventId": "evt_01JDELILVECTOR000000001",
+        "keyId": "ed25519:56475aa75463474c0285df5dbf2bcab7",
+        "payloadHash": "37de914abde91a7e32ec59ee906b6091bea98a5beb9426f147be4956bb4ad1ce",
+        "previousHash": "0000000000000000000000000000000000000000000000000000000000000000",
+        "projectId": "prj_01JDELILPROJECT000000000",
+        "recordedAt": "2026-10-02T09:15:00.000000Z",
+        "schemaVersion": 1,
+        "sequence": 1,
+        "stream": "contracts",
+        "tenantId": "org_01JDELILTENANT0000000000"
+      },
+      "headerCanonical": "{\"eventId\":\"evt_01JDELILVECTOR000000001\",\"keyId\":\"ed25519:56475aa75463474c0285df5dbf2bcab7\",\"payloadHash\":\"37de914abde91a7e32ec59ee906b6091bea98a5beb9426f147be4956bb4ad1ce\",\"previousHash\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"projectId\":\"prj_01JDELILPROJECT000000000\",\"recordedAt\":\"2026-10-02T09:15:00.000000Z\",\"schemaVersion\":1,\"sequence\":1,\"stream\":\"contracts\",\"tenantId\":\"org_01JDELILTENANT0000000000\"}",
+      "eventHash": "f03084f5a51e8318c73532086080fa12ed26bf36695c74ff4cc0d2da461ac220",
+      "signingMessageHex": "64656c696c3a76313a6576656e742d7369676e617475726500f03084f5a51e8318c73532086080fa12ed26bf36695c74ff4cc0d2da461ac220",
+      "signatureBase64": "u+S62H3n8PIRdxD2nsZnEUbFnTmXHh1N7O46XY8FxFEe2WMP0BadwbEAcBNj2PCkdO9iirjWXT7gR9NlgzVZBQ=="
+    },
+    {
+      "name": "second event",
+      "content": {
+        "action": "contract.approved",
+        "actor": {
+          "id": "user_128",
+          "type": "user"
+        },
+        "after": {
+          "status": "approved"
+        },
+        "before": {
+          "status": "draft"
+        },
+        "changes": [
+          {
+            "from": "draft",
+            "op": "replace",
+            "path": "/status",
+            "to": "approved"
+          }
+        ],
+        "context": {
+          "requestId": "req_123",
+          "sourceIp": "203.0.113.7"
+        },
+        "metadata": {
+          "note": "Dəlil — €"
+        },
+        "occurredAt": "2026-10-02T09:14:59.000000Z",
+        "resource": {
+          "id": "contract_813",
+          "type": "contract"
+        }
+      },
+      "contentCanonical": "{\"action\":\"contract.approved\",\"actor\":{\"id\":\"user_128\",\"type\":\"user\"},\"after\":{\"status\":\"approved\"},\"before\":{\"status\":\"draft\"},\"changes\":[{\"from\":\"draft\",\"op\":\"replace\",\"path\":\"/status\",\"to\":\"approved\"}],\"context\":{\"requestId\":\"req_123\",\"sourceIp\":\"203.0.113.7\"},\"metadata\":{\"note\":\"Dəlil — €\"},\"occurredAt\":\"2026-10-02T09:14:59.000000Z\",\"resource\":{\"id\":\"contract_813\",\"type\":\"contract\"}}",
+      "payloadHash": "e793f023db8eb73ad5bef9f3fe088253851bae1a66684d1e9f55e68fc00c8272",
+      "header": {
+        "eventId": "evt_01JDELILVECTOR000000002",
+        "keyId": "ed25519:56475aa75463474c0285df5dbf2bcab7",
+        "payloadHash": "e793f023db8eb73ad5bef9f3fe088253851bae1a66684d1e9f55e68fc00c8272",
+        "previousHash": "f03084f5a51e8318c73532086080fa12ed26bf36695c74ff4cc0d2da461ac220",
+        "projectId": "prj_01JDELILPROJECT000000000",
+        "recordedAt": "2026-10-02T09:15:01.000000Z",
+        "schemaVersion": 1,
+        "sequence": 2,
+        "stream": "contracts",
+        "tenantId": "org_01JDELILTENANT0000000000"
+      },
+      "headerCanonical": "{\"eventId\":\"evt_01JDELILVECTOR000000002\",\"keyId\":\"ed25519:56475aa75463474c0285df5dbf2bcab7\",\"payloadHash\":\"e793f023db8eb73ad5bef9f3fe088253851bae1a66684d1e9f55e68fc00c8272\",\"previousHash\":\"f03084f5a51e8318c73532086080fa12ed26bf36695c74ff4cc0d2da461ac220\",\"projectId\":\"prj_01JDELILPROJECT000000000\",\"recordedAt\":\"2026-10-02T09:15:01.000000Z\",\"schemaVersion\":1,\"sequence\":2,\"stream\":\"contracts\",\"tenantId\":\"org_01JDELILTENANT0000000000\"}",
+      "eventHash": "69317c2661ae35495740d1e1c4e4e665b82137000084e52f96428e36169888e7",
+      "signingMessageHex": "64656c696c3a76313a6576656e742d7369676e61747572650069317c2661ae35495740d1e1c4e4e665b82137000084e52f96428e36169888e7",
+      "signatureBase64": "2TWQs66XDPSxz7mjdVlXXJ12pd8bgm/W+JTAzZNilGbzTyZ0WfcIpz1ahsEeNDHmEMh7hx0Uot5Yp9EBEsUvCA=="
+    }
+  ],
+  "checkpoint": {
+    "body": {
+      "checkpointId": "chk_01JDELILVECTOR000000001",
+      "createdAt": "2026-10-02T09:16:00.000000Z",
+      "headHash": "69317c2661ae35495740d1e1c4e4e665b82137000084e52f96428e36169888e7",
+      "keyId": "ed25519:56475aa75463474c0285df5dbf2bcab7",
+      "projectId": "prj_01JDELILPROJECT000000000",
+      "schemaVersion": 1,
+      "sequence": 2,
+      "stream": "contracts",
+      "tenantId": "org_01JDELILTENANT0000000000"
+    },
+    "bodyCanonical": "{\"checkpointId\":\"chk_01JDELILVECTOR000000001\",\"createdAt\":\"2026-10-02T09:16:00.000000Z\",\"headHash\":\"69317c2661ae35495740d1e1c4e4e665b82137000084e52f96428e36169888e7\",\"keyId\":\"ed25519:56475aa75463474c0285df5dbf2bcab7\",\"projectId\":\"prj_01JDELILPROJECT000000000\",\"schemaVersion\":1,\"sequence\":2,\"stream\":\"contracts\",\"tenantId\":\"org_01JDELILTENANT0000000000\"}",
+    "checkpointHash": "7677a505620ebad50f0ac0716e78a0bfc4e686f06ae736cfed0a5feb955fdd29",
+    "signatureBase64": "O1JQDDcEJyDVCptGq1QGxEqV8kRmNMtO4ZV4jE5pyCwkMfb6XyS9gapvvZDye1oCNiFTQIDv1rUiCBjK3baSDw=="
+  }
+}
