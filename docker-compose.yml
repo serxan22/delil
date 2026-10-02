@@ -1,0 +1,74 @@
+# Local development stack: PostgreSQL, the DƏLİL API and the dashboard.
+#   cp .env.example .env && docker compose up --build
+# Every port is bound to 127.0.0.1. Not a production configuration; see docs/deployment.md.
+name: delil
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: delil
+      POSTGRES_DB: delil
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env (cp .env.example .env)}
+      DELIL_DB_APP_PASSWORD: ${DELIL_DB_APP_PASSWORD:?set DELIL_DB_APP_PASSWORD in .env}
+    volumes:
+      - postgres-data:/var/lib/postgresql
+      - ./deployments/docker/postgres-init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U delil -d delil"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: deployments/docker/server.Dockerfile
+    image: delil-server:dev
+    environment:
+      DELIL_ENV: development
+      # Runtime role: cannot UPDATE, DELETE or TRUNCATE audit records.
+      DELIL_DATABASE_URL: postgres://delil_app:${DELIL_DB_APP_PASSWORD}@postgres:5432/delil?sslmode=disable
+      # Owner role: used only to apply migrations and grant runtime privileges.
+      DELIL_MIGRATION_DATABASE_URL: postgres://delil:${POSTGRES_PASSWORD}@postgres:5432/delil?sslmode=disable
+      DELIL_AUTO_MIGRATE: "true"
+      DELIL_DB_APP_ROLE: delil_app
+      DELIL_MASTER_KEY: ${DELIL_MASTER_KEY:-}
+      DELIL_BOOTSTRAP: "true"
+      DELIL_BOOTSTRAP_ADMIN_EMAIL: ${DELIL_BOOTSTRAP_ADMIN_EMAIL:-admin@delil.local}
+      DELIL_BOOTSTRAP_ADMIN_PASSWORD: ${DELIL_BOOTSTRAP_ADMIN_PASSWORD:-}
+      DELIL_DEMO_DATA: ${DELIL_DEMO_DATA:-true}
+      DELIL_ANCHOR_DIR: /var/lib/delil/anchors
+      # The dashboard container forwards client IPs (development only).
+      DELIL_TRUSTED_PROXIES: 172.16.0.0/12,192.168.0.0/16,10.0.0.0/8
+      DELIL_LOG_FORMAT: ${DELIL_LOG_FORMAT:-text}
+    volumes:
+      - delil-data:/var/lib/delil
+    ports:
+      - "127.0.0.1:${DELIL_API_PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: deployments/docker/dashboard.Dockerfile
+    image: delil-dashboard:dev
+    environment:
+      DELIL_API_URL: http://api:8080
+      # Local http://localhost; set to true (the default) behind HTTPS.
+      DELIL_COOKIE_SECURE: "false"
+    ports:
+      - "127.0.0.1:${DELIL_DASHBOARD_PORT:-3000}:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  delil-data:
