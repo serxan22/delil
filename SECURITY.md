@@ -100,8 +100,9 @@ Runtime dependencies must have no known advisories.
 
 CodeQL findings fail the build unless they are listed, with a reason and a
 review date, in [`.github/codeql/accepted-findings.json`](.github/codeql/accepted-findings.json).
-Today that list has one entry: `delil-server users create` deliberately
-prints a password it generated once, to the operator's terminal.
+Each entry is a reviewed false positive or a deliberate behaviour, for
+example SHA-256 for 256-bit random API tokens (passwords use Argon2id) and the
+one-time display of a generated password by `delil-server users create`.
 
 ## Hardening guidance
 

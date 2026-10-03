@@ -10,5 +10,11 @@
     "path": "internal/api/middleware.go",
     "reason": "The request log is written through log/slog's JSON or text handler, which escape quotes, control characters and newlines in every value, so a client cannot forge log lines. The request id and trace id are additionally validated against strict patterns.",
     "reviewed": "2026-10-03"
+  },
+  {
+    "rule": "go/weak-sensitive-data-hashing",
+    "path": "internal/auth/auth.go",
+    "reason": "HashToken stores SHA-256 of API keys and session tokens, whose secret part is 256 bits from crypto/rand. A slow password hash only helps against guessable inputs; for uniformly random 256-bit secrets SHA-256 is preimage-resistant and lets every request authenticate in constant time. User passwords use Argon2id (internal/auth/password.go).",
+    "reviewed": "2026-10-03"
   }
 ]
