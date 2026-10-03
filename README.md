@@ -11,7 +11,7 @@ Every change, deletion, insertion or reordering is detected and pinpointed.
 [![Security](https://github.com/serxan22/delil/actions/workflows/security.yml/badge.svg)](https://github.com/serxan22/delil/actions/workflows/security.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-**English** · [Azərbaycanca](README.az.md)
+English | [Azərbaycanca](./README.az.md)
 
 </div>
 
@@ -24,7 +24,7 @@ linked to the previous event in its stream and signed (Ed25519). Verification
 recomputes all of it and tells you exactly which record was changed and how,
 and it can run on the auditor's own machine, without trusting the server.
 
-```
+```text
 $ delil verify --stream payments --trusted-keys trusted-keys.json     # output abridged
 
 Hash chain:         VALID
@@ -78,7 +78,7 @@ make dev                 # PostgreSQL, API on :8080, dashboard on :3000
 make credentials         # admin login and an API key, printed once
 ```
 
-Open http://localhost:3000 and sign in. The demo organization has a month of
+Open <http://localhost:3000> and sign in. The demo organization has a month of
 sample activity in four streams.
 
 ### Record an event
@@ -142,7 +142,7 @@ bin/delil verify-export contract-813.zip --trusted-keys trusted-keys.json   # of
 
 ## How it works
 
-```
+```text
 payloadHash = SHA-256("delil:v1:payload" ‖ 0x00 ‖ JCS(content))
 eventHash   = SHA-256("delil:v1:event"   ‖ 0x00 ‖ JCS(header))     header = {tenant, project, stream, sequence,
 signature   = Ed25519(sk, "delil:v1:event-signature" ‖ 0x00 ‖ eventHash)    eventId, recordedAt, previousHash,
@@ -181,7 +181,7 @@ applications report, not whether it is true. Read
 
 ## Project layout
 
-```
+```text
 cmd/        delil-server, delil (CLI), delil-bench
 pkg/        jcs · integrity · verify · evidence · client    pure Go core, no I/O
 internal/   API, storage, ingestion, keys, exports, workers
