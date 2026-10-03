@@ -1,0 +1,20 @@
+{
+  "name": "delil-example-webhook-audit",
+  "private": true,
+  "description": "Audit inbound webhooks exactly once with DƏLİL idempotency keys",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": { "node": ">=22.18" },
+  "scripts": {
+    "start": "node src/server.ts",
+    "send": "node src/send-test-webhook.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@delil/sdk": "file:../../sdk/typescript"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.1",
+    "typescript": "6.0.3"
+  }
+}

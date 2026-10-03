@@ -70,6 +70,21 @@ describe("events.record", () => {
     const r = await client(m.fn).events.record({ stream: "s", actor: { type: "user", id: "u" }, action: "a" });
     expect(r.replayed).toBe(true);
   });
+
+  it("marks fresh receipts as not replayed", async () => {
+    const m = mockFetch([json(201, receipt)]);
+    const r = await client(m.fn).events.record({ stream: "s", actor: { type: "user", id: "u" }, action: "a" });
+    expect(r.replayed).toBe(false);
+  });
+
+  it("copies the replay flag to every batch receipt", async () => {
+    const page = { object: "list", data: [receipt, { ...receipt, sequence: 2 }] };
+    const ev = { stream: "s", actor: { type: "user", id: "u" }, action: "a" };
+    const m = mockFetch([json(201, page), json(201, page, { "Idempotent-Replayed": "true" })]);
+    const c = client(m.fn);
+    expect((await c.events.recordBatch([ev, ev])).map((r) => r.replayed)).toEqual([false, false]);
+    expect((await c.events.recordBatch([ev, ev])).map((r) => r.replayed)).toEqual([true, true]);
+  });
 });
 
 describe("retry safety", () => {
