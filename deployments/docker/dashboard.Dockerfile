@@ -13,6 +13,10 @@ COPY apps/dashboard/ ./
 RUN npm run build
 
 FROM node:24-alpine
+# The runtime only executes `node server.js`. Removing the bundled package
+# managers drops code (and its advisories) that is never used in production.
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+      /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /opt/yarn-* /usr/local/bin/yarn /usr/local/bin/yarnpkg
 WORKDIR /app
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=3000 HOSTNAME=0.0.0.0
 COPY --from=build --chown=node:node /app/.next/standalone ./
