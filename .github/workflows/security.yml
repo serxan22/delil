@@ -121,7 +121,9 @@ jobs:
           jq --slurpfile accepted .github/codeql/accepted-findings.json '
             [ .runs[].results[]
               | {rule: .ruleId, path: .locations[0].physicalLocation.artifactLocation.uri,
-                 line: .locations[0].physicalLocation.region.startLine, message: (.message.text | gsub("\n"; " "))}
+                 line: .locations[0].physicalLocation.region.startLine,
+                 message: ((.message.text | gsub("\n"; " ")) + " | related: "
+                   + ([.relatedLocations[]? | "(\(.id)) \(.physicalLocation.artifactLocation.uri):\(.physicalLocation.region.startLine)"] | join(", ")))}
               | . as $f
               | select([$accepted[0][] | select(.rule == $f.rule and .path == $f.path)] | length == 0) ]' \
             sarif/*.sarif | jq -s 'add' > findings.json

@@ -66,7 +66,7 @@ func diffValue(path string, before, after any, out *[]Change) {
 		*out = append(*out, Change{Op: OpReplace, Path: path, From: before, To: after})
 		return
 	}
-	keys := make(map[string]struct{}, len(bm)+len(am))
+	keys := make(map[string]struct{}, max(len(bm), len(am)))
 	for k := range bm {
 		keys[k] = struct{}{}
 	}

@@ -4,5 +4,11 @@
     "path": "cmd/delil-server/main.go",
     "reason": "`delil-server users create` prints a password it generated exactly once to the operator's own terminal (stdout), as `bootstrap` does; it is never written to the server log. Pass a password on stdin to avoid generation.",
     "reviewed": "2026-10-03"
+  },
+  {
+    "rule": "go/log-injection",
+    "path": "internal/api/middleware.go",
+    "reason": "The request log is written through log/slog's JSON or text handler, which escape quotes, control characters and newlines in every value, so a client cannot forge log lines. The request id and trace id are additionally validated against strict patterns.",
+    "reviewed": "2026-10-03"
   }
 ]
