@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/serxan22/delil/security/advisories/new
+    about: Please report vulnerabilities privately, never in a public issue. See SECURITY.md.
+  - name: Questions and ideas
+    url: https://github.com/serxan22/delil/discussions
+    about: Ask how to use DƏLİL or discuss a design before opening an issue.

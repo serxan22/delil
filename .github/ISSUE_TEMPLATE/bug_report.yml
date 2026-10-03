@@ -1,0 +1,52 @@
+name: Bug report
+description: Something does not work as documented.
+labels: [bug, triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug.
+        **Security problems** (verification that passes on tampered data, tenant isolation, authentication, key handling) must be reported privately: see SECURITY.md.
+        Never paste API keys (`dlk_…`), session tokens (`dls_…`), master keys or real audit data.
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options: [Server / REST API, CLI (delil), TypeScript SDK, Dashboard, Evidence export, Verification engine, Docker / deployment, Documentation]
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: "Output of `delil version` and `delil-server version`, or the image tag / commit."
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Include the exact error, the request id (`X-Request-Id`) and, for verification problems, the JSON report (`delil verify --json`).
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. docker compose up
+        2. curl …
+        3. delil verify --stream …
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, PostgreSQL version, Go / Node.js versions, deployment method.

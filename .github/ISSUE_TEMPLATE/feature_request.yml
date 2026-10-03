@@ -1,0 +1,28 @@
+name: Feature request
+description: Propose an improvement.
+labels: [enhancement, triage]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do, and why is it hard today? Describe the use case before the solution.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+    validations:
+      required: true
+  - type: textarea
+    id: integrity
+    attributes:
+      label: Integrity and compatibility impact
+      description: |
+        Does this change what is hashed or signed, the evidence package format, the REST API or stored data?
+        Changes to the cryptographic construction need a new schema version and must keep existing chains verifiable.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered

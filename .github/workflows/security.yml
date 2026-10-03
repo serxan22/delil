@@ -1,0 +1,128 @@
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "17 4 * * 1" # weekly: new advisories appear without code changes
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  GOVULNCHECK_VERSION: v1.8.0
+  GITLEAKS_VERSION: v8.30.1
+  TRIVY_IMAGE: aquasec/trivy:0.75.0
+  GOTOOLCHAIN: local
+
+jobs:
+  govulncheck:
+    name: govulncheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      # Reports only vulnerabilities in code paths the binaries actually call.
+      - run: |
+          go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"
+          govulncheck ./...
+
+  gitleaks:
+    name: Secret scan (full history)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: |
+          go install "github.com/zricethezav/gitleaks/v8@${GITLEAKS_VERSION}"
+          gitleaks git --redact --no-banner --verbose .
+
+  npm-audit:
+    name: npm audit (${{ matrix.dir }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dir: [sdk/typescript, apps/dashboard, examples/node-basic, examples/webhook-audit, examples/contract-workflow]
+    defaults:
+      run:
+        working-directory: ${{ matrix.dir }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      # Gate on everything that ships (runtime dependencies). Development-only
+      # advisories are reported but do not fail the build; accepted ones are
+      # listed with their justification in SECURITY.md.
+      - name: Runtime dependencies (gating)
+        run: npm audit --omit=dev --audit-level=low
+      - name: All dependencies (report only)
+        run: npm audit || echo "::warning::development dependencies have advisories; see the log and SECURITY.md"
+
+  codeql:
+    name: CodeQL (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: go
+            build-mode: autobuild
+          - language: javascript-typescript
+            build-mode: none
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        if: matrix.language == 'go'
+        with:
+          go-version-file: go.mod
+      - uses: github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          queries: security-extended
+      - uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        with:
+          category: /language:${{ matrix.language }}
+
+  images:
+    name: Container image scan (${{ matrix.image }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [server, dashboard]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build
+        run: docker build -f deployments/docker/${{ matrix.image }}.Dockerfile -t delil-${{ matrix.image }}:scan .
+      - name: Trivy (HIGH and CRITICAL with a fix available)
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock "$TRIVY_IMAGE" image \
+            --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed --no-progress \
+            delil-${{ matrix.image }}:scan
