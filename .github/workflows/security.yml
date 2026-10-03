@@ -116,7 +116,8 @@ jobs:
       - name: Fail on findings
         run: |
           count=$(jq '[.runs[].results[]] | length' sarif/*.sarif)
-          jq -r '.runs[].results[] | "\(.ruleId): \(.message.text) (\(.locations[0].physicalLocation.artifactLocation.uri):\(.locations[0].physicalLocation.region.startLine))"' sarif/*.sarif
+          # One annotation per finding, shown on the run and next to the code.
+          jq -r '.runs[].results[] | "::error file=\(.locations[0].physicalLocation.artifactLocation.uri),line=\(.locations[0].physicalLocation.region.startLine),title=CodeQL \(.ruleId)::\(.message.text | gsub("\n"; " "))"' sarif/*.sarif
           echo "CodeQL findings: $count"
           [ "$count" -eq 0 ]
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
