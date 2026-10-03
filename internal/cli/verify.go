@@ -112,42 +112,6 @@ func (a *app) keySet(ctx context.Context, c *client.Client, path string) (*integ
 	return ks, problems, "fetched from the server (not pinned; use --trusted-keys)", nil
 }
 
-// chainSource pages through /v1/streams/{name}/chain.
-type chainSource struct {
-	c      *client.Client
-	stream string
-	after  int64
-	done   bool
-	head   *verify.Head
-	tenant string
-	proj   string
-}
-
-func (s *chainSource) Next(ctx context.Context) ([]verify.Item, error) {
-	if s.done {
-		return nil, nil
-	}
-	page, err := s.c.Chain(ctx, s.stream, s.after, 2000)
-	if err != nil {
-		return nil, err
-	}
-	if s.head == nil {
-		h, err := integrity.ParseHash(page.Head.Hash)
-		if err != nil {
-			return nil, err
-		}
-		s.head = &verify.Head{Sequence: page.Head.Sequence, Hash: h}
-		s.tenant, s.proj = page.TenantID, page.ProjectID
-	}
-	s.done = !page.HasMore
-	s.after = page.NextAfterSequence
-	items := make([]verify.Item, len(page.Records))
-	for i := range page.Records {
-		items[i] = verify.Item{Record: page.Records[i]}
-	}
-	return items, nil
-}
-
 func (a *app) verifyLocal(ctx context.Context, c *client.Client, stream string, f *verifyFlags) (*verify.Report, error) {
 	keys, problems, source, err := a.keySet(ctx, c, f.trustedKeys)
 	if err != nil {
@@ -167,29 +131,10 @@ func (a *app) verifyLocal(ctx context.Context, c *client.Client, stream string, 
 	if err != nil {
 		return nil, err
 	}
-	// The first page tells us the tenant, project and head of the stream.
-	src := &chainSource{c: c, stream: stream}
-	first, err := src.Next(ctx)
-	if err != nil {
-		return nil, err
-	}
-	v := verify.NewStreamVerifier(verify.StreamOptions{
-		TenantID: src.tenant, ProjectID: src.proj, Stream: stream, Keys: keys, KeySource: source,
-		RejectedKeys: problems, Head: src.head, Checkpoints: checkpoints, Witnesses: witnesses,
-		RequireContent: true, Verifier: cliVerifier,
+	return c.VerifyStreamLocal(ctx, stream, verify.StreamOptions{
+		Keys: keys, KeySource: source, RejectedKeys: problems,
+		Checkpoints: checkpoints, Witnesses: witnesses, Verifier: cliVerifier,
 	})
-	v.Add(first)
-	for {
-		items, err := src.Next(ctx)
-		if err != nil {
-			return nil, err
-		}
-		if len(items) == 0 {
-			break
-		}
-		v.Add(items)
-	}
-	return v.Finish(), nil
 }
 
 func (a *app) verifyStreams(ctx context.Context, f *verifyFlags, names []string) error {
