@@ -63,6 +63,9 @@ type Server struct {
 
 	touchMu sync.Mutex
 	touched map[string]time.Time
+
+	// patterns lists every registered route, for the OpenAPI coverage test.
+	patterns []string
 }
 
 // New builds the server and its routes.
@@ -120,7 +123,17 @@ var session = requirement{sessionOnly: true}
 
 type handlerFunc func(w http.ResponseWriter, r *http.Request, p *Principal) error
 
+// Routes returns the method and path pattern of every registered route.
+func (s *Server) Routes() []string { return append([]string(nil), s.patterns...) }
+
+// public registers an unauthenticated route.
+func (s *Server) public(pattern string, h http.Handler) {
+	s.patterns = append(s.patterns, pattern)
+	s.mux.Handle(pattern, h)
+}
+
 func (s *Server) handle(pattern string, req requirement, h handlerFunc) {
+	s.patterns = append(s.patterns, pattern)
 	s.mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
 		p, err := s.authenticate(r)
 		if err != nil {
@@ -155,16 +168,15 @@ func (s *Server) handle(pattern string, req requirement, h handlerFunc) {
 }
 
 func (s *Server) routes() {
-	m := s.mux
-	m.HandleFunc("GET /{$}", s.handleRoot)
-	m.HandleFunc("GET /health", s.handleHealth)
-	m.HandleFunc("GET /ready", s.handleReady)
-	m.HandleFunc("GET /openapi.yaml", s.handleOpenAPI)
+	s.public("GET /{$}", http.HandlerFunc(s.handleRoot))
+	s.public("GET /health", http.HandlerFunc(s.handleHealth))
+	s.public("GET /ready", http.HandlerFunc(s.handleReady))
+	s.public("GET /openapi.yaml", http.HandlerFunc(s.handleOpenAPI))
 	if s.cfg.MetricsAddr == "" && s.metrics != nil {
-		m.Handle("GET /metrics", s.MetricsHandler())
+		s.public("GET /metrics", s.MetricsHandler())
 	}
 
-	m.HandleFunc("POST /v1/auth/login", s.handleLogin)
+	s.public("POST /v1/auth/login", http.HandlerFunc(s.handleLogin))
 	s.handle("POST /v1/auth/logout", session, s.handleLogout)
 	s.handle("GET /v1/auth/session", session, s.handleSession)
 	s.handle("POST /v1/auth/password", session, s.handleChangePassword)
@@ -209,7 +221,7 @@ func (s *Server) routes() {
 	s.handle("POST /v1/signing-keys/rotate", project(auth.ScopeKeysRotate), s.handleRotateSigningKey)
 	s.handle("POST /v1/signing-keys/{id}/revoke", project(auth.ScopeKeysRotate), s.handleRevokeSigningKey)
 
-	m.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	s.mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, r, notFound("route"))
 	})
 }

@@ -30,15 +30,35 @@ security:
   - bearer: []
 tags:
   - name: Events
+    description: Record audit events and read them back.
   - name: Streams
+    description: Hash-chained streams, their raw chain records and signed checkpoints.
   - name: Verification
+    description: Server-side verification of events, streams and whole projects.
   - name: Exports
+    description: Signed, offline-verifiable evidence packages.
   - name: Keys
+    description: API keys for applications and the Ed25519 keys that sign events.
   - name: Projects
+    description: Projects, settings, dashboard users and statistics.
   - name: Sessions
+    description: Dashboard sign-in. Machine clients use API keys instead.
   - name: System
+    description: Health, readiness, metrics and this document.
 
 paths:
+  /:
+    get:
+      tags: [System]
+      summary: Service information
+      operationId: root
+      security: []
+      responses:
+        "200":
+          description: Name, version and the location of this document.
+          content:
+            application/json:
+              schema: { type: object, properties: { name: { type: string }, description: { type: string }, version: { type: string }, openapi: { type: string } } }
   /health:
     get:
       tags: [System]
@@ -64,11 +84,22 @@ paths:
     get:
       tags: [System]
       summary: Prometheus metrics
-      description: Served on the main port unless DELIL_METRICS_ADDR is set; optionally protected by DELIL_METRICS_TOKEN.
+      description: |
+        Served on the main port unless DELIL_METRICS_ADDR moves it to a separate listener.
+        When DELIL_METRICS_TOKEN is set the request must carry `Authorization: Bearer <token>`.
       operationId: metrics
       security: []
       responses:
         "200": { description: Prometheus text format, content: { text/plain: { schema: { type: string } } } }
+        "401": { description: DELIL_METRICS_TOKEN is set and the request did not present it. }
+  /openapi.yaml:
+    get:
+      tags: [System]
+      summary: This OpenAPI document
+      operationId: openapi
+      security: []
+      responses:
+        "200": { description: OpenAPI 3.1 YAML, content: { application/yaml: { schema: { type: string } } } }
 
   /v1/events:
     post:
@@ -88,19 +119,20 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
-        "413": { $ref: "#/components/responses/TooLarge" }
-        "415": { $ref: "#/components/responses/BadRequest" }
-        "422": { $ref: "#/components/responses/Invalid" }
         "429": { $ref: "#/components/responses/RateLimited" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "422": { $ref: "#/components/responses/Invalid" }
     get:
       tags: [Events]
       summary: List events (newest first)
+      description: Requires `events:read`.
       operationId: listEvents
       parameters:
         - { name: stream, in: query, schema: { type: string } }
         - { name: actorId, in: query, schema: { type: string } }
         - { name: actorType, in: query, schema: { type: string } }
-        - { name: action, in: query, description: Exact action, or a prefix ending with `*`., schema: { type: string } }
+        - { name: action, in: query, description: "Exact action, or a prefix ending with `*`.", schema: { type: string } }
         - { name: resourceType, in: query, schema: { type: string } }
         - { name: resourceId, in: query, schema: { type: string } }
         - { name: from, in: query, description: Recorded at or after (RFC 3339 or YYYY-MM-DD)., schema: { type: string } }
@@ -115,11 +147,14 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
   /v1/events/batch:
     post:
       tags: [Events]
       summary: Record several events atomically
-      description: All events are committed in one transaction, or none is. Events may target different streams.
+      description: |
+        Requires `events:write`. All events are committed in one transaction, or none is.
+        Events may target different streams.
       operationId: recordBatch
       parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
       requestBody:
@@ -134,7 +169,8 @@ paths:
                 events: { type: array, minItems: 1, maxItems: 500, items: { $ref: "#/components/schemas/EventInput" } }
       responses:
         "201":
-          description: Committed.
+          description: Committed (or replayed, see `Idempotent-Replayed`).
+          headers: { Idempotent-Replayed: { $ref: "#/components/headers/IdempotentReplayed" } }
           content:
             application/json:
               schema:
@@ -142,16 +178,25 @@ paths:
                 properties:
                   object: { const: list }
                   data: { type: array, items: { $ref: "#/components/schemas/EventReceipt" } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
         "413": { $ref: "#/components/responses/TooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
         "422": { $ref: "#/components/responses/Invalid" }
   /v1/events/{id}:
     get:
       tags: [Events]
       summary: Get an event
+      description: Requires `events:read`.
       operationId: getEvent
       parameters: [{ $ref: "#/components/parameters/EventId" }]
       responses:
         "200": { description: The event, content: { application/json: { schema: { $ref: "#/components/schemas/Event" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
         "404": { $ref: "#/components/responses/NotFound" }
   /v1/events/{id}/verify:
     get:
@@ -162,48 +207,61 @@ paths:
       parameters: [{ $ref: "#/components/parameters/EventId" }]
       responses:
         "200": { description: Report, content: { application/json: { schema: { $ref: "#/components/schemas/VerificationReport" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
         "404": { $ref: "#/components/responses/NotFound" }
 
   /v1/streams:
     get:
       tags: [Streams]
       summary: List streams
+      description: Requires `events:read`.
       operationId: listStreams
       responses:
-        "200":
-          description: Streams.
-          content:
-            application/json:
-              schema: { type: object, properties: { object: { const: list }, data: { type: array, items: { $ref: "#/components/schemas/Stream" } } } }
+        "200": { description: Streams, content: { application/json: { schema: { $ref: "#/components/schemas/StreamList" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
   /v1/streams/{name}:
     get:
       tags: [Streams]
       summary: Get a stream and its head
+      description: Requires `events:read`.
       operationId: getStream
       parameters: [{ $ref: "#/components/parameters/StreamName" }]
       responses:
         "200": { description: Stream, content: { application/json: { schema: { $ref: "#/components/schemas/Stream" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
         "404": { $ref: "#/components/responses/NotFound" }
   /v1/streams/{name}/chain:
     get:
       tags: [Streams]
       summary: Raw chain records for independent verification
       description: |
-        Returns headers, hashes, signatures and the exact canonical content, in ascending
-        sequence order. The delil CLI uses this endpoint to verify without trusting the server.
+        Requires `events:read`. Returns headers, hashes, signatures and the exact canonical
+        content, in ascending sequence order. The delil CLI uses this endpoint to verify
+        without trusting the server.
       operationId: getChain
       parameters:
         - { $ref: "#/components/parameters/StreamName" }
         - { name: afterSequence, in: query, schema: { type: integer, minimum: 0, default: 0 } }
         - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 5000, default: 1000 } }
-        - { name: content, in: query, description: Set to `false` for header-only records., schema: { type: boolean, default: true } }
+        - { name: content, in: query, description: "Set to `false` for header-only records.", schema: { type: boolean, default: true } }
       responses:
         "200": { description: A page of records, content: { application/json: { schema: { $ref: "#/components/schemas/ChainPage" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
         "404": { $ref: "#/components/responses/NotFound" }
   /v1/streams/{name}/verify:
     post:
       tags: [Verification]
       summary: Verify a stream on the server and record the run
+      description: Requires `verify`.
       operationId: verifyStream
       parameters: [{ $ref: "#/components/parameters/StreamName" }]
       requestBody:
@@ -216,19 +274,24 @@ paths:
                 witnesses: { type: array, description: Checkpoints saved earlier; they must still be part of the chain., items: { $ref: "#/components/schemas/Checkpoint" } }
       responses:
         "200": { description: Verification run with its report, content: { application/json: { schema: { $ref: "#/components/schemas/VerificationRun" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
         "404": { $ref: "#/components/responses/NotFound" }
   /v1/streams/{name}/checkpoints:
     get:
       tags: [Streams]
       summary: List signed checkpoints
+      description: Requires `events:read`. Ascending sequence order.
       operationId: listCheckpoints
       parameters: [{ $ref: "#/components/parameters/StreamName" }]
       responses:
-        "200":
-          description: Checkpoints in ascending sequence order.
-          content:
-            application/json:
-              schema: { type: object, properties: { object: { const: list }, data: { type: array, items: { $ref: "#/components/schemas/Checkpoint" } } } }
+        "200": { description: Checkpoints, content: { application/json: { schema: { $ref: "#/components/schemas/CheckpointList" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "404": { $ref: "#/components/responses/NotFound" }
     post:
       tags: [Streams]
       summary: Sign the current head
@@ -238,35 +301,48 @@ paths:
       responses:
         "201": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/Checkpoint" } } } }
         "200": { description: Already checkpointed, content: { application/json: { schema: { $ref: "#/components/schemas/Checkpoint" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
 
   /v1/verify:
     post:
       tags: [Verification]
       summary: Verify every stream of the project
+      description: Requires `verify`.
       operationId: verifyProject
       responses:
         "200": { description: Verification run, content: { application/json: { schema: { $ref: "#/components/schemas/VerificationRun" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
   /v1/verification-runs:
     get:
       tags: [Verification]
       summary: List verification runs
+      description: Requires `events:read`. Newest first; reports are omitted.
       operationId: listVerificationRuns
       parameters: [{ name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }]
       responses:
-        "200":
-          description: Runs, newest first (reports omitted).
-          content:
-            application/json:
-              schema: { type: object, properties: { object: { const: list }, data: { type: array, items: { $ref: "#/components/schemas/VerificationRun" } } } }
+        "200": { description: Runs, content: { application/json: { schema: { $ref: "#/components/schemas/VerificationRunList" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
   /v1/verification-runs/{id}:
     get:
       tags: [Verification]
       summary: Get a verification run with its report
+      description: Requires `events:read`.
       operationId: getVerificationRun
       parameters: [{ name: id, in: path, required: true, schema: { type: string, pattern: "^vrf_[0-9A-Z]{26}$" } }]
       responses:
         "200": { description: Run, content: { application/json: { schema: { $ref: "#/components/schemas/VerificationRun" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
         "404": { $ref: "#/components/responses/NotFound" }
 
   /v1/exports:
@@ -281,34 +357,45 @@ paths:
       responses:
         "202": { description: Queued, content: { application/json: { schema: { $ref: "#/components/schemas/Export" } } } }
         "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
         "404": { $ref: "#/components/responses/NotFound" }
     get:
       tags: [Exports]
       summary: List exports
+      description: Requires `exports`. Newest first.
       operationId: listExports
       responses:
-        "200":
-          description: Exports, newest first.
-          content:
-            application/json:
-              schema: { type: object, properties: { object: { const: list }, data: { type: array, items: { $ref: "#/components/schemas/Export" } } } }
+        "200": { description: Exports, content: { application/json: { schema: { $ref: "#/components/schemas/ExportList" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
   /v1/exports/{id}:
     get:
       tags: [Exports]
       summary: Get an export
+      description: Requires `exports`.
       operationId: getExport
       parameters: [{ $ref: "#/components/parameters/ExportId" }]
       responses:
         "200": { description: Export, content: { application/json: { schema: { $ref: "#/components/schemas/Export" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
         "404": { $ref: "#/components/responses/NotFound" }
   /v1/exports/{id}/download:
     get:
       tags: [Exports]
       summary: Download the evidence package (ZIP)
+      description: Requires `exports`. 409 while the package is still being built, has failed or has expired.
       operationId: downloadExport
       parameters: [{ $ref: "#/components/parameters/ExportId" }]
       responses:
         "200": { description: The package, content: { application/zip: { schema: { type: string, format: binary } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
 
@@ -330,49 +417,59 @@ paths:
               additionalProperties: false
               properties:
                 name: { type: string, maxLength: 100 }
-                scopes: { type: array, items: { $ref: "#/components/schemas/Scope" } }
+                scopes: { type: array, minItems: 1, items: { $ref: "#/components/schemas/Scope" } }
                 expiresAt: { type: string, format: date-time }
       responses:
-        "201": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/ApiKey" } } } }
+        "201": { description: "Created (includes `secret`, shown once)", content: { application/json: { schema: { $ref: "#/components/schemas/ApiKey" } } } }
         "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
     get:
       tags: [Keys]
       summary: List API keys (never includes secrets)
+      description: Requires `api_keys:manage`.
       operationId: listApiKeys
       responses:
-        "200":
-          description: Keys.
-          content:
-            application/json:
-              schema: { type: object, properties: { object: { const: list }, data: { type: array, items: { $ref: "#/components/schemas/ApiKey" } } } }
+        "200": { description: Keys, content: { application/json: { schema: { $ref: "#/components/schemas/ApiKeyList" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
   /v1/api-keys/{id}:
     delete:
       tags: [Keys]
       summary: Revoke an API key
+      description: Requires `api_keys:manage`.
       operationId: revokeApiKey
       parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
       responses:
         "200": { description: Revoked, content: { application/json: { schema: { $ref: "#/components/schemas/ApiKey" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
         "404": { $ref: "#/components/responses/NotFound" }
   /v1/signing-keys:
     get:
       tags: [Keys]
       summary: List signing keys
+      description: Requires `keys:read`. Oldest first.
       operationId: listSigningKeys
       responses:
-        "200":
-          description: Keys, oldest first.
-          content:
-            application/json:
-              schema: { type: object, properties: { object: { const: list }, data: { type: array, items: { $ref: "#/components/schemas/SigningKey" } } } }
+        "200": { description: Keys, content: { application/json: { schema: { $ref: "#/components/schemas/SigningKeyList" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
   /v1/signing-keys/export:
     get:
       tags: [Keys]
       summary: Public keys in trusted-keys format (for pinning)
+      description: Requires `keys:read`. Save the result and pass it to `delil verify --trusted-keys`.
       operationId: exportSigningKeys
       responses:
         "200": { description: Keys file, content: { application/json: { schema: { $ref: "#/components/schemas/KeysFile" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
   /v1/signing-keys/rotate:
     post:
       tags: [Keys]
@@ -389,32 +486,46 @@ paths:
                 properties:
                   previous: { $ref: "#/components/schemas/SigningKey" }
                   current: { $ref: "#/components/schemas/SigningKey" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
   /v1/signing-keys/{id}/revoke:
     post:
       tags: [Keys]
       summary: Revoke a compromised signing key
-      description: Events recorded after the revocation time with this key fail verification. Revoking the active key creates a replacement.
+      description: |
+        Requires `keys:rotate`. Events recorded after the revocation time with this key fail
+        verification. Revoking the active key creates a replacement.
       operationId: revokeSigningKey
       parameters: [{ name: id, in: path, required: true, schema: { type: string, pattern: "^ed25519:[0-9a-f]{32}$" } }]
       requestBody:
         required: true
         content:
           application/json:
-            schema: { type: object, required: [reason], properties: { reason: { type: string, maxLength: 500 } } }
+            schema: { type: object, required: [reason], properties: { reason: { type: string, minLength: 1, maxLength: 500 } } }
       responses:
-        "200": { description: Revoked }
+        "200": { description: Revoked, content: { application/json: { schema: { $ref: "#/components/schemas/KeyRevocation" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
         "404": { $ref: "#/components/responses/NotFound" }
 
   /v1/project:
     get:
       tags: [Projects]
       summary: The current project and its settings
+      description: Available to any API key or session of the project.
       operationId: getProject
       responses:
         "200": { description: Project, content: { application/json: { schema: { $ref: "#/components/schemas/Project" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
     patch:
       tags: [Projects]
       summary: Update the project name or ingestion settings (dashboard admins)
+      description: Requires `project:manage`, which only dashboard administrators hold.
       operationId: updateProject
       requestBody:
         required: true
@@ -428,34 +539,57 @@ paths:
                 settings: { $ref: "#/components/schemas/ProjectSettings" }
       responses:
         "200": { description: Updated project, content: { application/json: { schema: { $ref: "#/components/schemas/Project" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
   /v1/overview:
     get:
       tags: [Projects]
       summary: Statistics and integrity health
+      description: Requires `events:read`.
       operationId: getOverview
       responses:
         "200": { description: Overview, content: { application/json: { schema: { type: object } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
   /v1/projects:
     get:
       tags: [Projects]
       summary: List the organization's projects (dashboard sessions)
       operationId: listProjects
-      responses: { "200": { description: Projects } }
+      responses:
+        "200": { description: Projects, content: { application/json: { schema: { $ref: "#/components/schemas/ProjectList" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
     post:
       tags: [Projects]
       summary: Create a project with its own signing key (admins)
       operationId: createProject
       requestBody:
         required: true
-        content: { application/json: { schema: { type: object, required: [name], properties: { name: { type: string }, slug: { type: string } } } } }
+        content:
+          application/json:
+            schema: { type: object, required: [name], properties: { name: { type: string, maxLength: 200 }, slug: { type: string } } }
       responses:
         "201": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/Project" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "409": { $ref: "#/components/responses/Conflict" }
   /v1/users:
     get:
       tags: [Projects]
       summary: List dashboard users (admins)
       operationId: listUsers
-      responses: { "200": { description: Users } }
+      responses:
+        "200": { description: Users, content: { application/json: { schema: { $ref: "#/components/schemas/UserList" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
     post:
       tags: [Projects]
       summary: Create a dashboard user (admins)
@@ -469,10 +603,16 @@ paths:
               required: [email, displayName, role, password]
               properties:
                 email: { type: string, format: email }
-                displayName: { type: string }
+                displayName: { type: string, maxLength: 200 }
                 role: { type: string, enum: [admin, auditor, viewer] }
                 password: { type: string, minLength: 12, maxLength: 128 }
-      responses: { "201": { description: Created } }
+      responses:
+        "201": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/User" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "409": { $ref: "#/components/responses/Conflict" }
 
   /v1/auth/login:
     post:
@@ -487,24 +627,47 @@ paths:
           application/json:
             schema: { type: object, required: [email, password], properties: { email: { type: string }, password: { type: string } } }
       responses:
-        "200": { description: Session with token }
+        "200": { description: "Session, including the token (shown once)", content: { application/json: { schema: { $ref: "#/components/schemas/Session" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "429": { $ref: "#/components/responses/RateLimited" }
   /v1/auth/logout:
-    post: { tags: [Sessions], summary: Revoke the current session, operationId: logout, responses: { "204": { description: Signed out } } }
+    post:
+      tags: [Sessions]
+      summary: Revoke the current session
+      operationId: logout
+      responses:
+        "204": { description: Signed out }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
   /v1/auth/session:
-    get: { tags: [Sessions], summary: "The current session, user, organization and projects", operationId: getSession, responses: { "200": { description: Session } } }
+    get:
+      tags: [Sessions]
+      summary: The current session, user, organization and projects
+      operationId: getSession
+      responses:
+        "200": { description: Session (without token), content: { application/json: { schema: { $ref: "#/components/schemas/Session" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
   /v1/auth/password:
     post:
       tags: [Sessions]
       summary: Change the password and sign out other sessions
+      description: A wrong current password returns 403 `invalid_password`.
       operationId: changePassword
       requestBody:
         required: true
         content:
           application/json:
-            schema: { type: object, required: [currentPassword, newPassword], properties: { currentPassword: { type: string }, newPassword: { type: string, minLength: 12 } } }
-      responses: { "204": { description: Changed } }
+            schema: { type: object, required: [currentPassword, newPassword], properties: { currentPassword: { type: string }, newPassword: { type: string, minLength: 12, maxLength: 128 } } }
+      responses:
+        "204": { description: Changed }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
 components:
   securitySchemes:
@@ -546,6 +709,7 @@ components:
     Conflict: { description: Conflict, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
     Invalid: { description: Validation failed (`invalid_event` lists fields in `details.errors`) or idempotency key reused, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
     TooLarge: { description: Request or event too large, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+    UnsupportedMediaType: { description: "Content-Type is not application/json", content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
     RateLimited:
       description: Rate limited
       headers: { Retry-After: { schema: { type: integer }, description: Seconds to wait. } }
@@ -844,6 +1008,7 @@ components:
         name: { type: string }
         prefix: { type: string }
         scopes: { type: array, items: { $ref: "#/components/schemas/Scope" } }
+        createdBy: { type: string }
         createdAt: { $ref: "#/components/schemas/Timestamp" }
         lastUsedAt: { $ref: "#/components/schemas/Timestamp" }
         expiresAt: { $ref: "#/components/schemas/Timestamp" }
@@ -859,10 +1024,18 @@ components:
         fingerprint: { type: string, description: Hex SHA-256 of the raw public key. }
         status: { type: string, enum: [active, retired, revoked] }
         provider: { type: string }
+        createdAt: { $ref: "#/components/schemas/Timestamp" }
         activatedAt: { $ref: "#/components/schemas/Timestamp" }
         retiredAt: { $ref: "#/components/schemas/Timestamp" }
         revokedAt: { $ref: "#/components/schemas/Timestamp" }
+        revocationReason: { type: string }
         eventsSigned: { type: integer }
+    KeyRevocation:
+      type: object
+      properties:
+        object: { const: key_revocation }
+        revoked: { type: string, description: The revoked key id. }
+        replacement: { oneOf: [{ $ref: "#/components/schemas/SigningKey" }, { type: "null" }], description: The new active key when the active key was revoked. }
     KeysFile:
       type: object
       properties:
@@ -902,4 +1075,70 @@ components:
         name: { type: string }
         settings: { $ref: "#/components/schemas/ProjectSettings" }
         createdAt: { $ref: "#/components/schemas/Timestamp" }
-        tenant: { type: object, properties: { id: { type: string }, slug: { type: string }, name: { type: string } } }
+        tenant: { $ref: "#/components/schemas/Tenant" }
+    Tenant:
+      type: object
+      properties:
+        id: { type: string }
+        slug: { type: string }
+        name: { type: string }
+    User:
+      type: object
+      properties:
+        object: { const: user }
+        id: { type: string }
+        email: { type: string }
+        displayName: { type: string }
+        role: { type: string, enum: [admin, auditor, viewer] }
+        createdAt: { $ref: "#/components/schemas/Timestamp" }
+        lastLoginAt: { $ref: "#/components/schemas/Timestamp" }
+        disabled: { type: boolean }
+    Session:
+      type: object
+      properties:
+        object: { const: session }
+        token: { type: string, description: "The session token (`dls_…`); only in the login response." }
+        expiresAt: { $ref: "#/components/schemas/Timestamp" }
+        user: { $ref: "#/components/schemas/User" }
+        tenant: { $ref: "#/components/schemas/Tenant" }
+        projects: { type: array, items: { $ref: "#/components/schemas/Project" } }
+    StreamList:
+      type: object
+      properties:
+        object: { const: list }
+        data: { type: array, items: { $ref: "#/components/schemas/Stream" } }
+    CheckpointList:
+      type: object
+      properties:
+        object: { const: list }
+        data: { type: array, items: { $ref: "#/components/schemas/Checkpoint" } }
+    VerificationRunList:
+      type: object
+      properties:
+        object: { const: list }
+        data: { type: array, items: { $ref: "#/components/schemas/VerificationRun" } }
+    ExportList:
+      type: object
+      properties:
+        object: { const: list }
+        data: { type: array, items: { $ref: "#/components/schemas/Export" } }
+    ApiKeyList:
+      type: object
+      properties:
+        object: { const: list }
+        data: { type: array, items: { $ref: "#/components/schemas/ApiKey" } }
+    SigningKeyList:
+      type: object
+      properties:
+        object: { const: list }
+        data: { type: array, items: { $ref: "#/components/schemas/SigningKey" } }
+    ProjectList:
+      type: object
+      properties:
+        object: { const: list }
+        data: { type: array, items: { $ref: "#/components/schemas/Project" } }
+    UserList:
+      type: object
+      properties:
+        object: { const: list }
+        data: { type: array, items: { $ref: "#/components/schemas/User" } }
