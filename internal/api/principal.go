@@ -24,23 +24,21 @@ type Principal struct {
 	TenantID  string
 	ProjectID string
 	Scopes    map[string]bool
-	APIKeyID  string
 	UserID    string
 	SessionID string
 	Role      string
 	Email     string
+
+	// actor is fixed when the principal is authenticated: "api_key:<record
+	// id>" or "user:<id>". It never contains a secret.
+	actor string
 }
 
 // Can reports whether the principal holds scope.
 func (p *Principal) Can(scope string) bool { return p.Scopes[scope] }
 
 // Actor identifies the principal in logs and history (never a secret).
-func (p *Principal) Actor() string {
-	if p.Kind == KindAPIKey {
-		return "api_key:" + p.APIKeyID
-	}
-	return "user:" + p.UserID
-}
+func (p *Principal) Actor() string { return p.actor }
 
 // RateKey groups requests for rate limiting.
 func (p *Principal) RateKey() string { return p.Actor() }
@@ -100,7 +98,8 @@ func (s *Server) authenticate(r *http.Request) (*Principal, error) {
 		for _, sc := range k.Scopes {
 			scopes[sc] = true
 		}
-		return &Principal{Kind: KindAPIKey, TenantID: k.TenantID, ProjectID: k.ProjectID, Scopes: scopes, APIKeyID: k.ID}, nil
+		return &Principal{Kind: KindAPIKey, TenantID: k.TenantID, ProjectID: k.ProjectID, Scopes: scopes,
+			actor: "api_key:" + k.ID}, nil
 
 	case strings.HasPrefix(token, auth.SessionPrefix):
 		if !auth.ValidSessionToken(token) {
@@ -120,7 +119,7 @@ func (s *Server) authenticate(r *http.Request) (*Principal, error) {
 			scopes[sc] = true
 		}
 		return &Principal{Kind: KindSession, TenantID: user.TenantID, Scopes: scopes, UserID: user.ID,
-			SessionID: sess.ID, Role: user.Role, Email: user.Email}, nil
+			SessionID: sess.ID, Role: user.Role, Email: user.Email, actor: "user:" + user.ID}, nil
 	}
 	return nil, errBadCredentials
 }

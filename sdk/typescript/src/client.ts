@@ -69,6 +69,13 @@ function toTime(v: string | Date | undefined): string | undefined {
   return v instanceof Date ? v.toISOString() : v;
 }
 
+// A linear scan: the equivalent regex /\/+$/ backtracks quadratically.
+function trimTrailingSlashes(url: string): string {
+  let end = url.length;
+  while (end > 0 && url.charCodeAt(end - 1) === 47 /* "/" */) end--;
+  return url.slice(0, end);
+}
+
 function randomKey(): string {
   return globalThis.crypto.randomUUID();
 }
@@ -103,7 +110,7 @@ export class Delil {
     if (typeof window !== "undefined" && typeof (globalThis as { document?: unknown }).document !== "undefined") {
       console.warn("[delil] The SDK is running in a browser. API keys must never be exposed to browsers.");
     }
-    this.baseUrl = options.baseUrl.replace(/\/+$/, "");
+    this.baseUrl = trimTrailingSlashes(options.baseUrl);
     this.apiKey = options.apiKey;
     this.timeoutMs = options.timeoutMs ?? 10_000;
     this.maxRetries = Math.max(0, options.maxRetries ?? 2);

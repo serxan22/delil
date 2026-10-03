@@ -138,6 +138,17 @@ describe("errors", () => {
   it("requires credentials", () => {
     expect(() => new Delil({ baseUrl: "http://x", apiKey: undefined })).toThrow("apiKey is required");
   });
+
+  it("trims trailing slashes from the base URL in linear time", async () => {
+    const m = mockFetch([json(200, { status: "ok", version: "t" })]);
+    await new Delil({ baseUrl: "http://delil.test///", apiKey: "dlk_test", fetch: m.fn }).health();
+    expect(String(m.calls[0]!.url)).toBe("http://delil.test/health");
+
+    const hostile = "http://x" + "/".repeat(200_000) + "a";
+    const start = performance.now();
+    new Delil({ baseUrl: hostile, apiKey: "dlk_test", fetch: m.fn });
+    expect(performance.now() - start).toBeLessThan(100);
+  });
 });
 
 describe("pagination", () => {

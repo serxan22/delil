@@ -112,6 +112,35 @@ func (r *reader) integer(name string, def int64) int64 {
 	return n
 }
 
+// intUpTo reads an int in [0, limit]. strconv.Atoi already returns an int,
+// so no narrowing conversion can wrap on 32-bit platforms.
+func (r *reader) intUpTo(name string, def, limit int) int {
+	v := r.str(name, "")
+	if v == "" {
+		return def
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 0 || n > limit {
+		r.errs = append(r.errs, fmt.Sprintf("%s: expected an integer between 0 and %d", name, limit))
+		return def
+	}
+	return n
+}
+
+// int32UpTo reads an int32 in [0, limit].
+func (r *reader) int32UpTo(name string, def, limit int32) int32 {
+	v := r.str(name, "")
+	if v == "" {
+		return def
+	}
+	n, err := strconv.ParseInt(v, 10, 32)
+	if err != nil || n < 0 || n > int64(limit) {
+		r.errs = append(r.errs, fmt.Sprintf("%s: expected an integer between 0 and %d", name, limit))
+		return def
+	}
+	return int32(n)
+}
+
 func (r *reader) float(name string, def float64) float64 {
 	v := r.str(name, "")
 	if v == "" {
@@ -159,7 +188,7 @@ func Load() (*Config, error) {
 		MigrationDatabaseURL: r.str("DELIL_MIGRATION_DATABASE_URL", ""),
 		AutoMigrate:          r.boolean("DELIL_AUTO_MIGRATE", false),
 		DBAppRole:            r.str("DELIL_DB_APP_ROLE", ""),
-		DBMaxConns:           int32(min(r.integer("DELIL_DB_MAX_CONNS", 20), 1000)), //nolint:gosec // bounded
+		DBMaxConns:           r.int32UpTo("DELIL_DB_MAX_CONNS", 20, 1000),
 
 		KeyProvider:   r.str("DELIL_KEY_PROVIDER", "local"),
 		MasterKeyFile: r.str("DELIL_MASTER_KEY_FILE", ""),
@@ -174,15 +203,15 @@ func Load() (*Config, error) {
 		CheckpointPoll:   r.duration("DELIL_CHECKPOINT_POLL", 30*time.Second),
 		VerifyInterval:   r.duration("DELIL_VERIFY_INTERVAL", 6*time.Hour),
 
-		MaxEventBytes:        int(r.integer("DELIL_MAX_EVENT_BYTES", 256*1024)),
-		MaxBatchEvents:       int(r.integer("DELIL_MAX_BATCH_EVENTS", 500)),
+		MaxEventBytes:        r.intUpTo("DELIL_MAX_EVENT_BYTES", 256*1024, 16<<20),
+		MaxBatchEvents:       r.intUpTo("DELIL_MAX_BATCH_EVENTS", 500, 10000),
 		MaxRequestBytes:      r.integer("DELIL_MAX_REQUEST_BYTES", 4*1024*1024),
-		MaxStreamsPerProject: int(r.integer("DELIL_MAX_STREAMS_PER_PROJECT", 1000)),
+		MaxStreamsPerProject: r.intUpTo("DELIL_MAX_STREAMS_PER_PROJECT", 1000, 1_000_000),
 		IdempotencyTTL:       r.duration("DELIL_IDEMPOTENCY_TTL", 7*24*time.Hour),
 
 		RateLimitRPS:    r.float("DELIL_RATE_LIMIT_RPS", 100),
-		RateLimitBurst:  int(r.integer("DELIL_RATE_LIMIT_BURST", 200)),
-		LoginRateLimit:  int(r.integer("DELIL_LOGIN_RATE_LIMIT", 10)),
+		RateLimitBurst:  r.intUpTo("DELIL_RATE_LIMIT_BURST", 200, 1_000_000),
+		LoginRateLimit:  r.intUpTo("DELIL_LOGIN_RATE_LIMIT", 10, 1_000_000),
 		SessionTTL:      r.duration("DELIL_SESSION_TTL", 12*time.Hour),
 		CORSOrigins:     r.list("DELIL_CORS_ALLOWED_ORIGINS"),
 		MetricsAddr:     r.str("DELIL_METRICS_ADDR", ""),

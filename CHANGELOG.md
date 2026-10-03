@@ -33,6 +33,16 @@ always keep existing chains verifiable.
 ### Fixed
 - SDK: `events.record` returned `replayed: undefined` instead of `false` for
   new events, and `events.recordBatch` never set `replayed` on its receipts.
+- SDK: trailing slashes are trimmed from `baseUrl` in linear time (the regex
+  used before backtracked quadratically; CodeQL `js/polynomial-redos`).
+- Server configuration: integer settings are range-checked before narrowing,
+  so out-of-range values are rejected instead of wrapping on 32-bit platforms
+  (`DELIL_DB_MAX_CONNS` above 1000 is now an error instead of being clamped).
+- Logs identify API-key callers by a label fixed at authentication, so no
+  API-key field flows into log calls (CodeQL `go/clear-text-logging`; only the
+  key's record id was ever logged).
+- Webhook example: the HMAC is computed over the raw body bytes instead of the
+  UTF-8-decoded string.
 
 ## [0.1.0] - unreleased
 

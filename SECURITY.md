@@ -98,6 +98,11 @@ reported by CI but do not fail it. The current list:
 
 Runtime dependencies must have no known advisories.
 
+CodeQL findings fail the build unless they are listed, with a reason and a
+review date, in [`.github/codeql/accepted-findings.json`](.github/codeql/accepted-findings.json).
+Today that list has one entry: `delil-server users create` deliberately
+prints a password it generated once, to the operator's terminal.
+
 ## Hardening guidance
 
 See [docs/security.md](docs/security.md) for deployment hardening: database

@@ -1,0 +1,8 @@
+[
+  {
+    "rule": "go/clear-text-logging",
+    "path": "cmd/delil-server/main.go",
+    "reason": "`delil-server users create` prints a password it generated exactly once to the operator's own terminal (stdout), as `bootstrap` does; it is never written to the server log. Pass a password on stdin to avoid generation.",
+    "reviewed": "2026-10-03"
+  }
+]

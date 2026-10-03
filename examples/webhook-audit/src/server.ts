@@ -35,7 +35,9 @@ interface Delivery {
   data: { object: string; id: string; [key: string]: unknown };
 }
 
-function authentic(timestamp: string | undefined, signature: string | undefined, body: string): string | null {
+// The signature covers the raw bytes. Decoding first would let different byte
+// sequences (invalid UTF-8 becomes U+FFFD) share one signature.
+function authentic(timestamp: string | undefined, signature: string | undefined, body: Buffer): string | null {
   if (!timestamp || !signature) return "missing signature headers";
   const age = Math.abs(Date.now() / 1000 - Number(timestamp));
   if (!Number.isFinite(age) || age > toleranceSeconds) return "timestamp outside the replay window";
@@ -45,7 +47,7 @@ function authentic(timestamp: string | undefined, signature: string | undefined,
   return null;
 }
 
-async function readBody(req: IncomingMessage): Promise<string> {
+async function readBody(req: IncomingMessage): Promise<Buffer> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of req) {
@@ -53,7 +55,7 @@ async function readBody(req: IncomingMessage): Promise<string> {
     if (size > maxBody) throw new Error("body too large");
     chunks.push(chunk as Buffer);
   }
-  return Buffer.concat(chunks).toString("utf8");
+  return Buffer.concat(chunks);
 }
 
 function reply(res: ServerResponse, status: number, body: object): void {
@@ -64,7 +66,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
   if (req.method !== "POST" || req.url !== "/webhooks/payments") return reply(res, 404, { error: "not found" });
   const sourceIp = req.socket.remoteAddress;
   const userAgent = req.headers["user-agent"]?.slice(0, 512);
-  let body: string;
+  let body: Buffer;
   try {
     body = await readBody(req);
   } catch {
@@ -74,7 +76,8 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
   const problem = authentic(req.headers["x-webhook-timestamp"] as string, req.headers["x-webhook-signature"] as string, body);
   if (problem) {
     // Never record the unauthenticated body: it is attacker-controlled. Its
-    // hash is enough to correlate with the provider later.
+    // hash is enough to correlate with the provider later. In production, rate
+    // limit this path (per source IP) so forged requests cannot flood the stream.
     await delil.events.record({
       stream,
       actor: { type: "external", id: "unauthenticated" },
@@ -87,7 +90,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 
   let delivery: Delivery;
   try {
-    delivery = JSON.parse(body);
+    delivery = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(body));
     if (typeof delivery.id !== "string" || typeof delivery.type !== "string" || !delivery.data?.id) throw new Error();
   } catch {
     return reply(res, 400, { error: "malformed delivery" });
