@@ -1,0 +1,9 @@
+# Redocly lint exceptions. Each entry must be justified.
+# /, /health, /ready and /openapi.yaml are unauthenticated, unrate-limited and take
+# no input, so they have no 4XX response to document.
+api/openapi.yaml:
+  operation-4xx-response:
+    - '#/paths/~1/get/responses'
+    - '#/paths/~1health/get/responses'
+    - '#/paths/~1ready/get/responses'
+    - '#/paths/~1openapi.yaml/get/responses'

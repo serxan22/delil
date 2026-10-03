@@ -1,0 +1,7 @@
+# Redocly CLI configuration: `make openapi-lint`.
+extends:
+  - recommended
+rules:
+  # The only server entry is the local Compose stack on purpose; deployments
+  # document their own base URL.
+  no-server-example.com: off
