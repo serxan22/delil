@@ -82,6 +82,11 @@ benchmark: ## Run engine benchmarks and the ingestion/verification load test
 	go test -run '^$$' -bench . -benchmem ./pkg/...
 	go run ./cmd/delil-bench
 
+.PHONY: examples
+examples: ## Build the SDK and run every example against a running server (needs DELIL_API_KEY)
+	cd sdk/typescript && npm ci && npm run build
+	./scripts/run-examples.sh
+
 .PHONY: openapi-lint
 openapi-lint: ## Lint the OpenAPI document
 	npx --yes @redocly/cli@2.12.0 lint api/openapi.yaml

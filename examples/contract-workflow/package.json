@@ -1,0 +1,19 @@
+{
+  "name": "delil-example-contract-workflow",
+  "private": true,
+  "description": "A contract lifecycle with redaction, checkpoints and an offline-verifiable evidence package",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": { "node": ">=22.18" },
+  "scripts": {
+    "start": "node src/main.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@delil/sdk": "file:../../sdk/typescript"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.1",
+    "typescript": "6.0.3"
+  }
+}

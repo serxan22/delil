@@ -216,26 +216,30 @@ class EventsResource {
    * Records one event. An idempotency key is generated when none is given,
    * so automatic retries can never create duplicates.
    */
-  record(event: EventInput, options: RequestOptions = {}): Promise<EventReceipt> {
-    return this.c.request({
+  async record(event: EventInput, options: RequestOptions = {}): Promise<EventReceipt> {
+    const receipt = await this.c.request<EventReceipt>({
       method: "POST",
       path: "/v1/events",
       body: { ...event, occurredAt: toTime(event.occurredAt) },
       ...options,
       idempotencyKey: options.idempotencyKey ?? randomKey(),
     });
+    receipt.replayed = receipt.replayed === true;
+    return receipt;
   }
 
   /** Records up to the server's batch limit atomically: all events or none. */
   async recordBatch(events: EventInput[], options: RequestOptions = {}): Promise<EventReceipt[]> {
-    const page = await this.c.request<Page<EventReceipt>>({
+    const page = await this.c.request<Page<EventReceipt> & { replayed?: boolean }>({
       method: "POST",
       path: "/v1/events/batch",
       body: { events: events.map((e) => ({ ...e, occurredAt: toTime(e.occurredAt) })) },
       ...options,
       idempotencyKey: options.idempotencyKey ?? randomKey(),
     });
-    return page.data;
+    // Idempotent-Replayed describes the whole response; copy it to each receipt.
+    const replayed = page.replayed === true;
+    return page.data.map((r) => ({ ...r, replayed }));
   }
 
   get(id: string, options?: RequestOptions): Promise<AuditEvent> {
