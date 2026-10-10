@@ -1,18 +1,18 @@
 # syntax=docker/dockerfile:1.7
 # DƏLİL dashboard: Next.js standalone server running as the unprivileged node user.
-FROM node:24-alpine AS deps
+FROM node:25-alpine AS deps
 WORKDIR /app
 COPY apps/dashboard/package.json apps/dashboard/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 
-FROM node:24-alpine AS build
+FROM node:25-alpine AS build
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY --from=deps /app/node_modules ./node_modules
 COPY apps/dashboard/ ./
 RUN npm run build
 
-FROM node:24-alpine
+FROM node:25-alpine
 # The runtime only executes `node server.js`. Removing the bundled package
 # managers drops code (and its advisories) that is never used in production.
 RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
